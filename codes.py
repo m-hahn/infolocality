@@ -7,6 +7,7 @@ import scipy.special
 import pandas as pd
 import rfutils
 
+import infoloc as il
 import huffman
 
 DELIMITER = '#'
@@ -20,8 +21,11 @@ def ljust(xs, length, value):
         xs.extend([value]*num_needed)
         return xs
 
+def int_to_char(x, offset=65):
+    return chr(offset + x)
+
 def ints_to_str(ints, offset=65):
-    return "".join(chr(offset + i) for i in ints)
+    return "".join(map(int_to_char, ints))
 
 # How many "effective phonemes" are there in a language?
 # This is given by e^h.
@@ -76,10 +80,8 @@ def encode_weak_contiguous(ms, codes):
     return np.hstack([code[m] for m, code in zip(ms, codes)])
 
 def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True):
-    M = p_Mk.shape[-1]
-    k = len(p_Mk.shape)
     def gen():
-        for i, mk in enumerate(itertools.product(*[range(M)]*k)):
+        for i, mk in enumerate(itertools.product(*map(range, p_Mk.shape))):
             yield ints_to_str(encode(mk, code)), p_Mk[mk]
     df = pd.DataFrame(gen())
     df.columns = ['form', 'probability']
@@ -91,6 +93,13 @@ def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True
 
 concatenate = "".join
 
+@rfutils.memoize
+def char_gensym(x, _state=itertools.count()):
+    return int_to_char(next(_state))
+
+def identity_code(features):
+    return "".join(map(char_gensym, features))
+
 def systematic_code(code, combination_fn=concatenate):
     def composed_code(features: Iterable) -> str: 
         strings = map(code, features)
@@ -99,20 +108,16 @@ def systematic_code(code, combination_fn=concatenate):
 
 def random_systematic_code(meanings, S, l, unique=False, combination_fn=concatenate):
     # meanings is an iterable of feature bundles. Feature bundles are iterables of features.
+    # strongly systematic.
     value_set = {feature for feature_bundle in meanings for feature in feature_bundle}
     random_digits = random_code(len(value_set), S, l, unique=unique)
     codebook = dict(zip(value_set, map(ints_to_str, random_digits)))
     return systematic_code(codebook.__getitem__, combination_fn=combination_fn), codebook
 
-def form_probabilities(p, meanings, code, with_delimiter='left', stationarity_correction=True):
+def form_probabilities(p, meanings, code, with_delimiter='left'):
     """ code is a mapping from meanings (iterables of feature bundles) to strings """
     forms = map(code, meanings)
     df = pd.DataFrame({'form': forms, 'p': p})
-    if stationarity_correction:
-        # for utterance x, q(x) \propto |x| p(x), to create a true stationary distribution.
-        df['p'] = df['p'] * (df['form'].map(len) + 1) # TODO: +1?
-        Z = df['p'].sum()
-        df['p'] = df['p'] / Z
     if with_delimiter == 'left':
         df['form'] = DELIMITER + df['form']
     elif with_delimiter:
@@ -152,27 +157,44 @@ def random_code(M, S, l, unique=False):
                 codes.add(proposed)
         return np.array(list(codes))
     else:
-        return np.random.randint(S, size=(M, l))        
+        return np.random.randint(S, size=(M, l))
+
+def paradigms(num_meanings, num_words):
+    def relabel(sequence):
+        state = itertools.count()
+        mapping = {}
+        for x in sequence:
+            if x not in mapping:
+                mapping[x] = next(state)
+                yield mapping[x]
+            else:
+                yield mapping[x]
+    sequences = set()                
+    for sequence in rfutils.cartesian_indices(num_words, num_meanings):
+        relabeled = tuple(relabel(sequence))
+        if max(relabeled) == num_words - 1:
+            sequences.add(relabeled)
+    return sequences
 
 def uniform_code(M, S):
     uniform_code_len = np.log(N) / np.log(num_signals)
-    uniform_code = itertools.product(*[range(num_signals)]*int(np.ceil(uniform_code_len)))
+    uniform_code = rfutils.cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
     return np.array(list(rfutils.take(uniform_code, N)))
 
 def cartesian_distinct_forms(V, k):
-    numerals = itertools.product(*[range(V)]*k)
+    numerals = rfutils.cartesian_indices(V, k)
     for group in numerals:
         yield "".join(int_to_char(x+i*V) for i, x in enumerate(group))
 
 def cartesian_forms(V, k):
-    numerals = itertools.product(*[range(V)]*k)
+    numerals = rfutils.cartesian_indices(V, k)
     for group in numerals:
         yield "".join(map(int_to_char, group))
 
 def repeating_blocks(V, k, m, overlapping=True):
     vocab = list(range(V))
     def gen():
-        for vs in itertools.product(*[vocab]*m):
+        for vs in rfutils.cartesian_indices(V, m):
             parts = [
                 [(1-overlapping)*b*V + vs[b]]*k
                 for b in range(m)

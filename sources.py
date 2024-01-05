@@ -1,18 +1,23 @@
 import itertools
+import random
 from collections import Counter
 
+import rfutils
 import numpy as np
 import scipy.special
+import scipy.stats
+import scipy.optimize
 import pandas as pd
 import einops
+import tqdm
 
 MK_PATH = "data/generated-MI-distros/generated-MI-distros_%s.txt"
 
 def log_rem(*shape, T=1):
     return scipy.special.log_softmax(1/T*np.random.randn(*shape))
 
-def rem(*shape, T=1):
-    return scipy.special.softmax(1/T*np.random.randn(*shape))
+def rem(*shape, T=1, lam=1):
+    return scipy.special.softmax(lam*1/T*np.random.randn(*shape))
 
 def zipf_mandelbrot(N, s=1, q=0):
     k = np.arange(N) + 1
@@ -62,13 +67,7 @@ def mi_mix3(i12, i23):
     A[0b111] *= (i12*1 + (1-i12)*1/2) * (i23*1 + (1-i23)*1/2)
     return A
 
-def entropy(p):
-    return scipy.special.entr(p).sum()
-
-def conditional_entropy(p_xy, p_x):
-    """ get H[Y | X] """
-    p_x = p_xy.sum(axis=-1, keepdims=True)
-    return scipy.special.entr(p_xy).sum() - scipy.special.entr(p_x).sum()
+entropy = scipy.stats.entropy
 
 def mi(p_xy):
     """ Calculate mutual information of a distribution P(x,y) 
@@ -79,9 +78,17 @@ def mi(p_xy):
     Output:
     The mutual information I[X:Y], a nonnegative scalar,
     """
-    p_x = p_xy.sum(axis=-1, keepdims=True)
-    p_y = p_xy.sum(axis=-2, keepdims=True)
-    return scipy.special.entr(p_x).sum() + scipy.special.entr(p_y).sum() - scipy.special.entr(p_xy).sum()
+    p_x = p_xy.sum(axis=-1)
+    p_y = p_xy.sum(axis=-2)
+    return entropy(p_x, axis=None) + entropy(p_y, axis=None) - entropy(p_xy, axis=None)
+
+def tc(joint):
+    marginals = 0.0
+    for i in range(joint.ndim):
+        axes = tuple([j for j in range(joint.ndim) if j != i])
+        marginal = joint.sum(axes)
+        marginals += entropy(marginal)
+    return marginals - entropy(joint, axis=None)
 
 def perturbed_conditional(px, py, perturbation_size=1):
     """
@@ -92,24 +99,51 @@ def perturbed_conditional(px, py, perturbation_size=1):
     energy = np.log(py)[None, :] + perturbation_size*a
     return scipy.special.softmax(energy, -1)
 
+def mostly_independent(*Vs, coupling=1, source='zipf', consistent=True, systematic=True, **kwds):
+    # first make marginal distributions for each V
+    if source == 'zipf': 
+        ps = [zipf_mandelbrot(V, **kwds) for V in Vs]
+    elif source == 'rem':
+        if consistent:
+            V = rfutils.the_unique(Vs)
+            p = rem(V, **kwds)
+            ps = [p for _ in range(len(Vs))]
+        else:
+            ps = [rem(V, **kwds) for V in Vs]
+    # now make a joint distribution over V*
+    source = 1
+    for p in ps:
+        source = np.outer(source, p)
+    source = scipy.special.softmax(np.log(source.reshape(Vs)) + coupling*np.random.randn(*Vs))
+    meanings = itertools.product(*[range(V) for V in Vs])
+    return source, list(meanings)
+    
 def dependents(V, k, coupling=1, source='rem', consistent=True, **kwds):
+    """
+    A distribution of head with k dependents.
+    
+    V - number of distinct words.
+    k - number of dependents
+    
+    """
+    # meaning of V and k is messed up -- should be V^k, but is V*k.
     if source == 'zipf':
         h = zipf_mandebelbrot(V, **kwds)
         ds = [zipf_mandelbrot(V, **kwds) for _ in range(k)]
     elif source == 'rem':
         h = rem(V, **kwds)
-        if not consistent:
-            ds = rem(k, V, **kwds)
-        else:
+        if consistent:
             d = rem(V, **kwds)
             ds = np.array([d for _ in range(k)])
+        else:
+            ds = np.array([rem(V, **kwds) for _ in range(k)])       
     conditionals = np.array([
         perturbed_conditional(h, d, perturbation_size=coupling*np.sqrt(V)/(i+1))
         for i, d in enumerate(ds)
     ])
     mis = [mi(h[:, None] * conditional) for conditional in conditionals]
     def gen():
-        for configuration in itertools.product(*(range(V),)*(k+1)):
+        for configuration in rfutils.cartesian_indices(V, k+1):
             d = {'h': ('h', configuration[0])}
             d |= {'d%d' % i : d for i, d in enumerate(configuration[1:])}
             p = h[configuration[0]]
@@ -140,8 +174,8 @@ def astarn(num_A, num_N, num_classes=1, p_halt=.5, maxlen=4, source='rem', coupl
             d = {'n': n, 'p': N[n]}
             for k in range(maxlen):
                 p_k = (1-p_halt)**k * (p_halt if k <= maxlen else 1) / num_classes
-                for classes in itertools.product(*(range(num_classes),)*k):
-                    for adjectives in itertools.product(*(range(num_A),)*k):
+                for classes in rfutils.cartesian_indices(num_classes, k):
+                    for adjectives in rfutils.cartesian_indices(num_A, k):
                         d = {'n': (n,)}
                         d |= {str(i) : (c,a) for i, (c, a) in enumerate(zip(classes, adjectives))}
                         p = N[n] * p_k * np.prod([ANs[c,n,a] for c, a in zip(classes, adjectives)])
@@ -153,20 +187,64 @@ def astarn(num_A, num_N, num_classes=1, p_halt=.5, maxlen=4, source='rem', coupl
     ps = ps / np.sum(ps)
     return ps, meanings, pmis, class_mis
 
-def mansfield_kemp_source(which='training'): # or 'test'
-    # Noun Adj Num Dem
+def mansfield_kemp_source(which='training', A_rate=1, N_rate=1, D_rate=1): # or 'test'
+    # Noun Adj Num Dem, disjoint, represented as tuples
     filename = MK_PATH % which
     df = pd.read_csv(filename, sep="\t")
-    counts = Counter(tuple(m.values()) for m in df.to_dict(orient='record'))
-    meanings = list(counts.keys())
-    ps = np.array(list(counts.values()))
+    df.columns = "n A N D".split()
+    counts = Counter(tuple(dict(row).items()) for _, row in df.iterrows())
+    def gen():
+        rates = [A_rate, N_rate, D_rate]
+        for meaning, count in counts.items():
+            modifiers = [meaning[1], meaning[2], meaning[3]]
+            for mask in itertools.product(*[[0,1]]*3):
+                truncated = (meaning[0],) + tuple([m for i, m in enumerate(modifiers) if mask[i]])
+                trunc_prob = count
+                for i, rate in enumerate(rates):
+                    trunc_prob *= rate if mask[i] else (1-rate)
+                if trunc_prob > 0:
+                    yield truncated, trunc_prob
+    meanings, ps = zip(*gen())
+    ps = np.array(ps)
     ps = ps / ps.sum()
     return ps, meanings
+
+def empirical_source(filename, truncate=0, len_limit=0, rename=None):
+    df = pd.read_csv(filename)
+    def gen():
+        for i, row in df.iterrows():
+            meaning = []
+            for key, value in row.items():
+                if not pd.isna(value):
+                    if rename:
+                        meaning.append((rename[key], value))
+                    else:
+                        meaning.append((key, value))
+            if len(meaning) > len_limit:
+                yield tuple(meaning)
+    counts = Counter(gen())
+    if truncate:
+        counts = {k:v for k, v in counts.items() if v > truncate}
+    meanings, ps = zip(*counts.items())
+    ps = np.array(ps)
+    ps = ps / ps.sum()
+    return ps, meanings
+
+def couple(p, q, coupling=.5, coupling_type='logspace'):
+    """ Couple distribution p with q, where resulting distribution has same entropy as p """
+    target = entropy(p)
+    if type == 'mixture':
+        mix = np.log((1-coupling)*p + coupling*q)
+    else:
+        mix = (1-coupling) * np.log(p) + coupling * np.log(q)
+    def objective(T):
+        value = entropy(scipy.special.softmax(T*mix))
+        return (value - target)**2
+    T = scipy.optimize.minimize(objective, 1).x.item()
+    return scipy.special.softmax(T*mix)
+
+
+
     
-
-
-
-
-
-
+    
     

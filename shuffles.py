@@ -15,10 +15,8 @@ import anipa_to_ipa
 
 try:
     import cliqs.corpora
-except ModuleNotFoundError:
+except ImportError:
     pass
-
-# NOTE: All logarithms here are natural logarithms!
 
 PROTEINS_PATH = "/Users/canjo/data/genome/"
 PROTEINS_FILENAME = "GRCh37_latest_protein.faa"
@@ -302,18 +300,13 @@ def morpheme_orders(infl):
 
 def order_score(J, f, data, weights=None):
     new_data = data.map(f)
-    return score(J, new_data, weights)
+    return il.score(J, new_data, weights)
 
 def total_fusion_score(J, infl, fused_order, weights=None):
     return order_scores(J, lambda x: fuse_morphemes(x, fused_order), infl, weights=weights)
 
 def total_order_score(J, infl, order, weights=None):
     return order_scores(J, lambda x: reorder_total(x, order), infl, weights=weights)
-
-def score(J, forms, weights=None, maxlen=None):
-    counts = il.counts_from_sequences(forms, weights=weights, maxlen=maxlen)
-    curves = il.mle_curves_from_counts(counts['count'], counts['x_{<t}'])
-    return J(curves)
 
 def permutation_scores(J, forms, weights, perms=None):
     # should take ~3hr to do a sweep over 9! permutations

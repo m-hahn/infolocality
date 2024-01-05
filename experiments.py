@@ -1,3 +1,4 @@
+import sys
 import itertools
 import functools
 import random
@@ -8,15 +9,18 @@ import tqdm
 import numpy as np
 import pandas as pd
 import scipy.special
+import scipy.optimize
 import matplotlib.pyplot as plt
 from plotnine import *
 
+import infoloc as il
 import sources as s
 import codes as c
-import infoloc as il
+import shuffles as sh
 
 def fusion_advantage(mi=1/2):
     p = s.mi_mix(mi)
+    mi = s.mi(p.reshape(2,2))
     agglutinative = list(c.cartesian_distinct_forms(2, 2))
     fusional = agglutinative.copy()
     fusional[-1], fusional[-2] = fusional[-2], fusional[-1]
@@ -30,6 +34,7 @@ def fusion_advantage(mi=1/2):
 
 def agglutination_advantage(mi=1/2):
     p = s.product_distro(s.flip(1/2), s.mi_mix(mi))
+    mi = s.mi(p.reshape(2*2,2))
     agglutinative = list(c.cartesian_distinct_forms(2, 3))
     fusionalgood = agglutinative.copy()
     fusionalgood[2], fusionalgood[3] = fusionalgood[3], fusionalgood[2]
@@ -61,15 +66,15 @@ def demonstrate_separation_advantage(num_meanings=100,
     source = s.factor(flat_source, num_meanings, num_meanings_per_word)
     code = c.random_code(num_meanings, num_signals, num_signals_per_morpheme)
     signal = c.word_probabilities(source, code, with_delimiter=with_delimiter, marginalize=False)
-    meanings = itertools.product(*[range(num_meanings)]*num_meanings_per_word)
+    meanings = rfutils.cartesian_indices(num_meanings, num_meanings_per_word)
     signal['m'] = list(meanings)
     for i in range(num_meanings_per_word):
         signal[i] = signal['m'].map(lambda x: x[i])
     
-    signal['form_sys_scrambled'] = signal['form'].map(il.scramble_form)
-    signal['form_sys_dscrambled'] = signal['form'].map(il.DeterministicScramble().shuffle)
-    signal['form_sys_eo'] = signal['form'].map(il.even_odd)
-    signal['form_sys_oi'] = signal['form'].map(il.outward_in)
+    signal['form_sys_scrambled'] = signal['form'].map(sh.scramble_form)
+    signal['form_sys_dscrambled'] = signal['form'].map(sh.DeterministicScramble().shuffle)
+    signal['form_sys_eo'] = signal['form'].map(sh.even_odd)
+    signal['form_sys_oi'] = signal['form'].map(sh.outward_in)
     signal['form_quasisys'] = np.random.permutation(signal['form'].values)
     signal.rename({'form': 'form_sys'}, axis=1, inplace=True)
 
@@ -85,7 +90,7 @@ def demonstrate_separation_advantage(num_meanings=100,
 
     return signal
 
-def demonstrate_separation_exceptions(k=10, **kwds):
+def demonstrate_separation_exceptions(k=10, metric=il.ee, **kwds):
     # These don't work!?!
     df = demonstrate_separation_advantage(**kwds)
     n = len(df)
@@ -100,11 +105,11 @@ def demonstrate_separation_exceptions(k=10, **kwds):
     dfp['rfreqsyn'][random_indices] = dfp['form_syn'][random_indices]
 
     print(
-        il.score(il.ee, dfp['form_sys'], dfp['probability']),
-        il.score(il.ee, dfp['form_syn'], dfp['probability']),
-        il.score(il.ee, dfp['freqsyn'], dfp['probability']),
-        il.score(il.ee, dfp['infreqsyn'], dfp['probability']),
-        il.score(il.ee, dfp['rfreqsyn'], dfp['probability']),
+        il.score(metric, dfp['form_sys'], dfp['probability']),
+        il.score(metric, dfp['form_syn'], dfp['probability']),
+        il.score(metric, dfp['freqsyn'], dfp['probability']),
+        il.score(metric, dfp['infreqsyn'], dfp['probability']),
+        il.score(metric, dfp['rfreqsyn'], dfp['probability']),
     )
 
     df['pmi'] = np.log(df['probability']) - np.log(df['p0']) - np.log(df['p1'])
@@ -115,11 +120,11 @@ def demonstrate_separation_exceptions(k=10, **kwds):
     dfm['r_mi_syn'][random_indices] = dfm['form_syn'][random_indices]
 
     print(
-        il.score(il.ee, dfm['form_sys'], dfm['probability']),
-        il.score(il.ee, dfm['form_syn'], dfm['probability']),
-        il.score(il.ee, dfm['high_mi_syn'], dfm['probability']),
-        il.score(il.ee, dfm['low_mi_syn'], dfm['probability']),
-        il.score(il.ee, dfm['r_mi_syn'], dfm['probability']),
+        il.score(metric, dfm['form_sys'], dfm['probability']),
+        il.score(metric, dfm['form_syn'], dfm['probability']),
+        il.score(metric, dfm['high_mi_syn'], dfm['probability']),
+        il.score(metric, dfm['low_mi_syn'], dfm['probability']),
+        il.score(metric, dfm['r_mi_syn'], dfm['probability']),
     )
 
 def demonstrate_contiguity_preference(num_meanings=10,
@@ -152,9 +157,8 @@ def demonstrate_contiguity_preference(num_meanings=10,
     # Go through global permutations  
     def gen():
         for perm in itertools.permutations(range(num_meanings_per_word*num_signals_per_morpheme)):
-            reordered = signal['form'].map(lambda s: il.reorder_form(s, perm))
-            counts = il.counts_from_sequences(reordered, weights=signal['probability']) # need to exp?
-            curves = il.mle_curves_from_counts(counts['count'], counts['x_{<t}'])
+            reordered = signal['form'].map(lambda s: sh.reorder_form(s, perm))
+            curves = il.curves_from_sequences(reordered, weights=signal['probability']) # need to exp?
             ms = il.ms_auc(curves)
             ee = il.ee(curves)
             contiguous = c.is_contiguous(num_meanings_per_word, num_signals_per_morpheme, perm)
@@ -188,52 +192,64 @@ def num_discontinuities(perm):
             which = i in set1
     return d
 
-def summarize_mle(source, code, with_delimiter='both'):
+def summarize(source, code, with_delimiter='both'):
     signal = c.form_probabilities_np(source, code, with_delimiter=with_delimiter)
     curves = il.curves_from_sequences(signal['form'], signal['probability'])
     return curves
 
+def strong_combinatoriality_sweep(min_coupling=0, max_coupling=10, num_steps=10, num_samples=10, **kwds):
+    perturbations = np.linspace(min_coupling, max_coupling, num_steps)
+    def gen():
+        for perturbation in tqdm.tqdm(perturbations):
+            for sample in range(num_samples):
+                df = strong_combinatoriality(coupling=perturbation, **kwds)
+                df['sample'] = sample
+                df['coupling'] = perturbation
+                yield df
+    return pd.concat(list(gen()))
+
 def strong_combinatoriality(num_morphemes=4,
                             num_parts=4,
-                            morpheme_length=4,
-                            vocab_size=2,
-                            with_delimiter='left',
-                            perturbation_size=0,
+                            morpheme_length=1,
+                            vocab_size=4,
+                            with_delimiter='both',
+                            coupling=0,
+                            coupling_type='product',
                             source='zipf',
+                            debug=False,
+                            include_positional=False,
+                            shuffle=True,
                             **kwds):
-    # Independent perturbed-iid morphemes. Is strong or weak systematicity better?
-    # Intuition: Strong systematicity means your short-range entropy doesn't depend on which word you're in, so it's better.
-    
-    # With left-delimiter only, strong is better. With both delimiters, weak is better:
-    # Strong systematicity is better at low t. 
-    # Weak systematicity is better at high t.
-    # Crossover around t=morpheme_length. Both reach h_t=h at t=3*morpheme_length. 
-
-    # Shouldn't strong systematicity yield a lower entropy rate at low t? it does...
-    # Why does strong systematicity give a higher entropy rate at high t?
-    # -> Because it does not give strong cues to where you are in the signal!
+    # Defaults are set to remove redundancy.
+    # We only get strong < weak when with_delimiter='left', or when considering M/S tradeoff instead of EE
+    # otherwise the lower h_1 is offset by higher h_t, because in the strongly-systematic code,
+    # it's hard to tell where you are in the utterance; therefore the lower unigram entropy is offset
+    # by higher bigram entropy for the end-of-sequence symbol.
+    # Strong systematicity would only be better if time index is not informative about distance from end.
     
     num_meanings = num_morphemes**num_parts
 
     if source == 'zipf':
         morpheme_source = s.zipf_mandelbrot(num_morphemes, **kwds)
-        np.random.shuffle(morpheme_source)
+        if shuffle:
+            np.random.shuffle(morpheme_source) 
     elif source == 'rem':
         morpheme_source = s.rem(num_morphemes, **kwds)
+    joint_source = s.zipf_mandelbrot(num_meanings, **kwds)
+    if shuffle:
+        np.random.shuffle(joint_source)
         
-    source = np.array([0])
+    factored_source = np.array([1])
     for k in range(num_parts):
-        source = s.product_distro(
-            source,
-            scipy.special.softmax(
-                np.log(morpheme_source) + perturbation_size*np.random.randn(num_morphemes)
-            )
-        )
+        factored_source = s.product_distro(factored_source, morpheme_source)
+    if coupling:
+        source = s.couple(factored_source, joint_source, coupling=coupling, coupling_type=coupling_type)
     source = source.reshape((num_morphemes,)*num_parts)
+    tc = s.tc(source)
 
     # Build codes
-    strong_code = c.random_code(num_morphemes, vocab_size, morpheme_length)
-    holistic_code = c.random_code(num_meanings, vocab_size, morpheme_length*num_parts)
+    strong_code = c.random_code(num_morphemes, vocab_size, morpheme_length, unique=True)
+    holistic_code = c.random_code(num_meanings, vocab_size, morpheme_length*num_parts, unique=True)
 
     # Weak systematic code is permutations of the strong code; this controls entropy rate
     shuffles = random.sample(list(itertools.permutations(range(num_morphemes))), num_parts)
@@ -244,39 +260,78 @@ def strong_combinatoriality(num_morphemes=4,
     signals = dict([
         # Strongly systematic code:
         ('strong', c.word_probabilities(source, strong_code, with_delimiter=with_delimiter)),
-
-        # Strongly systematic code with positional marking
-        ('strong_positional', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_positional, with_delimiter=with_delimiter)),
-
-        ('free_order', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_random_order, with_delimiter=with_delimiter)),
-        ('free_positional', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_positional_random_order, with_delimiter=with_delimiter)),
-        
         ('weak', c.word_probabilities(source, weak_codes, encode=c.encode_weak_contiguous, with_delimiter=with_delimiter)),
         ('holistic', c.word_probabilities(source.flatten(), holistic_code, with_delimiter=with_delimiter)),
     ])
 
+    if include_positional:
+        signals |=  dict([
+            ('strong_positional', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_positional, with_delimiter=with_delimiter)),
+
+            #('free_order', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_random_order, with_delimiter=with_delimiter)),
+            ('free_positional', c.word_probabilities(source, strong_code, encode=c.encode_contiguous_positional_random_order, with_delimiter=with_delimiter)),
+        ])
+        
+
+
     def gen():
         for name, signal in signals.items():
-            counts = il.counts_from_sequences(signal['form'], weights=signal['probability'])
-            curves = il.mle_curves_from_counts(counts['count'], counts['x_{<t}'])
+            curves = il.curves_from_sequences(signal['form'], weights=signal['probability'])
             curves['type'] = name
+            curves['tc'] = tc
             yield curves
-            
+
+    if debug:
+        breakpoint()
+
     return pd.concat(list(gen()))
 
-def combinatoriality(morpheme_length=4, vocab_size=2, with_delimiter='both', source='zipf', **kwds):
+def sample_dfs(f, num_samples=1):
+    def gen():
+        for i in tqdm.tqdm(range(num_samples)):
+            df = f()
+            df['sample'] = i
+            yield df
+    return pd.concat(list(gen()))
+
+def combinatoriality(morpheme_length=1,
+                     vocab_size=2,
+                     with_delimiter='both',
+                     source='zipf',
+                     coupling=0,
+                     shuffle_source=True,
+                     shuffle_forms=True,
+                     **kwds):
+    """ Sweep through codes of different levels of holisticity vs. systematicity. """
+    # findings
+    # with zero redundancy and coupling=1, no advantage to any factorization
+    # with zero redundnacy and coupling=0, factorization is good
+    # with redundancy and coupling=1, factorization is good
+    # with redundancy and coupling=0, factorization is wonderful
     if source == 'zipf':
-        source = s.zipf_mandelbrot(256, **kwds)
-        np.random.shuffle(source)
+        joint_source = s.zipf_mandelbrot(256, **kwds)
+        morpheme_source = s.zipf_mandelbrot(2, **kwds)
+        if shuffle_source:
+            np.random.shuffle(joint_source)
+            np.random.shuffle(morpheme_source)
     elif source == 'rem':
-        source = s.rem(256, **kwds)
+        joint_source = s.rem(256, **kwds)
+        morpheme_source = s.rem(2, **kwds)
+
+    if coupling == 1:
+        source = joint_source
+    else:
+        factored_source = np.array([1])
+        for k in range(8):
+            factored_source = s.product_distro(factored_source, morpheme_source)
+        source = s.couple(factored_source, joint_source, coupling=coupling)
         
-    # 256 = 4 x 4 x 4
+    # 256 = 4 x 4 x 4 x 4
     codes = [
-        (2, 8, c.random_code(2, vocab_size, morpheme_length*1)),     # 2^8
-        (4, 4, c.random_code(4, vocab_size, morpheme_length*2)),     # 4^4
-        (16, 2, c.random_code(16, vocab_size, morpheme_length*4)),   # 16**2
-        (256, 1, c.random_code(256, vocab_size, morpheme_length*8)), # 256**1
+        (2, 8, c.random_code(2, vocab_size, morpheme_length*1, unique=True)),     # 2^8
+        (4, 4, c.random_code(4, vocab_size, morpheme_length*2, unique=True)),     # 4^4
+        (16, 2, c.random_code(16, vocab_size, morpheme_length*4, unique=True)),   # 16**2
+        (256, 1, c.random_code(256, vocab_size, morpheme_length*8, unique=True)), # 256**1
     ]
     def gen():
         for num_morphemes, num_parts, code in codes:
@@ -286,12 +341,26 @@ def combinatoriality(morpheme_length=4, vocab_size=2, with_delimiter='both', sou
                 code,
                 with_delimiter=with_delimiter
             )
-            counts = il.counts_from_sequences(signal['form'], weights=signal['probability'])
-            curves = il.mle_curves_from_counts(counts['count'], counts['x_{<t}'])
+            curves = il.curves_from_sequences(signal['form'], weights=signal['probability'])
             curves['num_morphemes'] = num_morphemes
             curves['num_parts'] = num_parts
+            curves['type'] = str(num_parts)
+            curves['order'] = 'concatenative'
             yield curves
-    return pd.concat(list(gen()))
+
+            if shuffle_forms:
+                ds = sh.DeterministicScramble()
+                shuffled_forms = signal['form'].map(ds.shuffle)
+                curves = il.curves_from_sequences(shuffled_forms, weights=signal['probability'])
+                curves['num_morphemes'] = num_morphemes
+                curves['num_parts'] = num_parts
+                curves['order'] = 'shuffle'
+                curves['type'] = str(num_parts)
+                yield curves
+                
+    df = pd.concat(list(gen()))
+    df['tc'] = s.tc(source.reshape((2,)*8))
+    return df
         
 def id_vs_cnot(mi=1/2):
     source = s.mi_mix(mi)
@@ -307,32 +376,32 @@ def id_vs_cnot(mi=1/2):
         [1, 1],
         [1, 0],
     ])
-    df1 = summarize_mle(source, id)
+    df1 = summarize(source, id)
     df1['type'] = 'id'
-    df2 = summarize_mle(source, cnot)
+    df2 = summarize(source, cnot)
     df2['type'] = 'cnot'
     return pd.concat([df1, df2])
 
-def id_vs_cnot_sources(num_samples=1000, source='rem', **kwds):
-    id = np.array([
+def id_vs_cnot_sources(num_samples=1000, source='rem', redundancy=1, metric=il.ee, **kwds):
+    id = np.repeat(np.array([
         [0, 2],
         [0, 3],
         [1, 2],
         [1, 3],
-    ])
-    cnot12 = np.array([
+    ]), redundancy, -1)
+    cnot12 = np.repeat(np.array([
         [0, 2],
         [0, 3],
         [1, 3],
         [1, 2],
-    ])
+    ]), redundancy, -1)
 
-    cnot21 = np.array([
+    cnot21 = np.repeat(np.array([
         [0, 2],
         [1, 3],
         [1, 2],
         [0, 3],
-    ])
+    ]), redundancy, -1)
 
     def gen():
         for i in tqdm.tqdm(range(num_samples)):
@@ -345,9 +414,9 @@ def id_vs_cnot_sources(num_samples=1000, source='rem', **kwds):
             source_y = source_factored.sum(-2)
             yield {
                 'mi': s.mi(source_factored),
-                'id': summarize_mle(source_flat, id, **kwds)['H_M_lower_bound'].max(),
-                'cnot12': summarize_mle(source_flat, cnot12, **kwds)['H_M_lower_bound'].max(),
-                'cnot21': summarize_mle(source_flat, cnot21, **kwds)['H_M_lower_bound'].max(),
+                'id': metric(summarize(source_flat, id, **kwds)),
+                'cnot12': metric(summarize(source_flat, cnot12, **kwds)),
+                'cnot21': metric(summarize(source_flat, cnot21, **kwds)),
                 'h1': s.entropy(source_x),
                 'h2': s.entropy(source_y),
             }
@@ -587,7 +656,7 @@ def id_vs_cnot4(i23=.9, i14=0, **kwds):
 
     def process(nl):
         name, lang = nl
-        df = summarize_mle(source, lang, **kwds)
+        df = summarize(source, lang, **kwds)
         df['type'] = name
         return df
 
@@ -606,9 +675,33 @@ def id_vs_cnot4(i23=.9, i14=0, **kwds):
     
     return df, source, the_langs
 
-def three_sweep(i12=0, i23=0.9, **kwds):
-    source = s.mi_mix3(i12, i23)
-    id_code = np.array([
+def systematic_columns(code):
+    patterns = {
+        (0,0,0,0,1,1,1,1),
+        (0,0,1,1,0,0,1,1),
+        (0,1,0,1,0,1,0,1),
+    }
+    def recode(xs):
+        i = 0
+        seen = {}
+        for x in xs:
+            if x in seen:
+                yield seen[x]
+            else:
+                seen[x] = i
+                yield seen[x]
+                i += 1
+    return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
+
+def three_sweep(i12=0, i23=0, p0=2/3, redundancy=1, **kwds):
+    """ Sweep through all unambiguous positional codes for a 3-bit source. """
+    # p0 argument only used if i12=i23=0
+    if not i12 and not i23:
+        assert p0 <= .9
+        source = s.product_distro(s.flip(p0+.1), s.product_distro(s.flip(p0+.05), s.flip(p0)))
+    else:
+        source = s.mi_mix3(i12, i23)
+    id_code = np.repeat(np.array([
         [0, 2, 4],
         [0, 2, 5],
         [0, 3, 4],
@@ -617,22 +710,26 @@ def three_sweep(i12=0, i23=0.9, **kwds):
         [1, 2, 5],
         [1, 3, 4],
         [1, 3, 5],
-    ])
-    the_range = range(8)
+    ]), redundancy, -1)
+    permutations = list(itertools.permutations(range(8)))
     def gen():
-        for permutation in tqdm.tqdm(list(itertools.permutations(the_range))):
+        for permutation in tqdm.tqdm(permutations):
             code = id_code[list(permutation)]
-            curves = summarize_mle(source, code, **kwds)
-            yield permutation, curves['H_M_lower_bound'].max(), code
-    permutations, ees, codes = zip(*gen())
-    return pd.DataFrame({'permutation': permutations, 'ee': ees, 'code': codes})
+            curves = summarize(source, code, **kwds)
+            #curves['permutation'] = tuple(permutation)
+            curves['code'] = str(code)
+            curves['systematic'] = systematic_columns(code)
+            curves['ee'] = il.ee(curves)
+            curves['mus_auc'] = il.ms_auc(curves)
+            yield curves
+    return pd.concat(list(gen()))
 
-def id_vs_cnot3(i12=0, i23=0.9, **kwds):
+def id_vs_cnot3(i12=0, i23=0.9, redundancy=1, **kwds):
     # I_12 = 0.
     # I_23 = 0.5
     source = s.mi_mix3(i12, i23)
     
-    id_code = np.array([
+    id_code = np.repeat(np.array([
         [0, 2, 4],
         [0, 2, 5],
         [0, 3, 4],
@@ -641,9 +738,9 @@ def id_vs_cnot3(i12=0, i23=0.9, **kwds):
         [1, 2, 5],
         [1, 3, 4],
         [1, 3, 5],
-    ])
+    ]), redundancy, -1)
 
-    fuse12 = np.array([  # CNOT(1,2)
+    fuse12 = np.repeat(np.array([  # CNOT(1,2)
         [0, 2, 4],
         [0, 2, 5],
         [0, 3, 4],
@@ -652,9 +749,9 @@ def id_vs_cnot3(i12=0, i23=0.9, **kwds):
         [1, 3, 5],
         [1, 2, 4],
         [1, 2, 5],        
-    ])
+    ]), redundancy, -1)
 
-    fuse23 = np.array([  # CNOT(2,3)
+    fuse23 = np.repeat(np.array([  # CNOT(2,3)
         [0, 2, 4],
         [0, 2, 5],
         [0, 3, 5],
@@ -663,9 +760,9 @@ def id_vs_cnot3(i12=0, i23=0.9, **kwds):
         [1, 2, 5],
         [1, 3, 5],
         [1, 3, 4],        
-    ])
+    ]), redundancy, -1)
 
-    fuse23_nonlocal = np.array([
+    fuse23_nonlocal = np.repeat(np.array([
         [2, 0, 4],
         [2, 0, 5],
         [3, 0, 5],
@@ -674,13 +771,13 @@ def id_vs_cnot3(i12=0, i23=0.9, **kwds):
         [2, 1, 5],
         [3, 1, 5],
         [3, 1, 4],                
-    ])
+    ]), redundancy, -1)
 
-    df1 = summarize_mle(source, id_code, **kwds)
+    df1 = summarize(source, id_code, **kwds)
     df1['type'] = 'id'
-    df2 = summarize_mle(source, fuse12, **kwds)
+    df2 = summarize(source, fuse12, **kwds)
     df2['type'] = 'cnot12'
-    df3 = summarize_mle(source, fuse23, **kwds)
+    df3 = summarize(source, fuse23, **kwds)
     df3['type'] = 'cnot23'
 
     df = pd.concat([df1, df2, df3])
@@ -737,9 +834,9 @@ def huffman_systematic_vs_not(first_prob=1/3, **kwds):
         [0, 1, 1, 1],
         [0, 1, 1, 0],
     ])
-    df1 = summarize_mle(source, systematic_huffman, **kwds)
+    df1 = summarize(source, systematic_huffman, **kwds)
     df1['type'] = 'systematic'
-    df2 = summarize_mle(source, nonsystematic_huffman, **kwds)
+    df2 = summarize(source, nonsystematic_huffman, **kwds)
     df2['type'] = 'nonsystematic'
     df = pd.concat([df1, df2])
 
@@ -795,11 +892,11 @@ def huffman_vs_separable(mi=1):
         [1, 1, 0, 1],
         [1, 1, 1, 1],
     ])
-    df1 = summarize_mle(source, compressed_code)
+    df1 = summarize(source, compressed_code)
     df1['type'] = 'compressed'
-    df2 = summarize_mle(source, separable_local_code)
+    df2 = summarize(source, separable_local_code)
     df2['type'] = 'separable_local'
-    df3 = summarize_mle(source, separable_nonlocal_code)
+    df3 = summarize(source, separable_nonlocal_code)
     df3['type'] = 'separable_nonlocal'
     return pd.concat([df1, df2, df3])
 
@@ -809,9 +906,11 @@ def shuffled(xs):
     return xs
 
 def locality(V=5, S=2, l=5, with_delimiter='both', **kwds):
+    """ compare orders for {h, d1, d2} where I[h:d1] > I[h:d2] """
     # dhd is consistently best with S=20, l=5: unambiguous word boundaries.
     # with S=2, l=5 and left delimiter, dhd or hdd is the best, inconsistently.
     # -> The hdd advantage has something to do with phonotactics...
+    # we rarely get consistent hdd advantage over hdh, but hdd_bad is always worse.
     source, meanings, mis = s.dependents(V=V, k=2, **kwds)
     codes = {
         'hdd': [
@@ -841,36 +940,83 @@ def locality(V=5, S=2, l=5, with_delimiter='both', **kwds):
 
     return pd.concat(list(gen())), mis, codebook
 
-def mansfield_kemp(S=50, l=1, with_delimiter='both'):
-    source, meanings = s.mansfield_kemp_source()
-    systematic, codebook = c.random_systematic_code(meanings, S, l, unique=True)
-    parts = "nAND"
+def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter='both'):
+    # in English GUM, 
+    # amod = 7747 = 32.6%
+    # nummod = 928 = 3.9%
+    # det = 11209 = 47.2%
+    # NOUN = 23726
 
-        
+    # Spanish AnCora
+    # amod = 29%
+    # nummod = 6%
+    # det = 85%
     
+    source, meanings = s.mansfield_kemp_source(A_rate=A_rate, N_rate=N_rate, D_rate=D_rate)
+    systematic, codebook = c.random_systematic_code(meanings, S, l, unique=True)
+    return np_order(source, meanings, systematic, with_delimiter=with_delimiter)
+
+def empirical_np_order(filename="de_np.csv", with_delimiter='both', truncate=0, len_limit=1):
+    # Empirical MIs (lemmatized, unlemmatized)...
+    # German, N=758,024 or 781,304 (unlemmatized)
+    # N-Adj = 3.6, 5.6
+    # N-Num = 1.7, 2.0
+    # N-Det = 0.9, 1.6
+    
+    # Czech
+    # N-Adj = 4.7
+    # N-Num = 1.6
+    # N-Det = 1.2
+
+    # How to reduce these to manageable sizes? What is a manageable size anyway?
+    ps, meanings = s.empirical_source(
+        filename,
+        truncate=truncate,
+        len_limit=len_limit,
+        rename={'N': 'n', 'Adj': 'A', 'Num': 'N', 'Det': 'D'}
+    )
+    print("Loaded source.", file=sys.stderr)
+    return np_order(ps, meanings, c.identity, with_delimiter=with_delimiter, parts='nAND')
+
+def np_order(source, meanings, code=c.identity_code, with_delimiter='both', parts="nAND"):    
     def codes():
-        for order in itertools.permutations(range(4)):
+        for order in itertools.permutations(range(len(parts))):
             label = "".join(parts[i] for i in order)
             grammar = [
-                tuple(meaning[i] for i in order)
+                sorted(meaning, key=lambda x: label.index(x[0]))
                 for meaning in meanings
             ]
             yield label, grammar
     the_codes = dict(codes())
     def gen():
         for name, order in tqdm.tqdm(the_codes.items()):
-            forms = c.form_probabilities(source, order, systematic, with_delimiter=with_delimiter)
+            forms = c.form_probabilities(source, order, code, with_delimiter=with_delimiter)
             curves = il.curves_from_sequences(forms['form'], forms['p'])
             curves['type'] = name
             yield curves
+        return
+        # nonsystematic code, following the last permutation (DNAn, a good one)
+        the_forms = map(code, order)
+        df = pd.DataFrame({'form': the_forms, 'p': forms['p']})
+        df['form'] = np.random.permutation(df['form'])
+        # for utterance x, q(x) \propto |x| p(x), to create a true stationary distribution.
+        df['p'] = df['p'] * (df['form'].map(len) + 1) # TODO: +1?
+        Z = df['p'].sum()
+        df['p'] = df['p'] / Z
+        if with_delimiter == 'left':
+            df['form'] = il.DELIMITER + df['form']
+        elif with_delimiter:
+            df['form'] = il.DELIMITER + df['form'] + il.DELIMITER
+        curves = il.curves_from_sequences(df['form'], df['p'])
+        curves['type'] = 'nonsys'
+        yield curves
 
-
-    # predicted typology
+    # empirical typological frequencies from Dryer 2017
     typology = pd.DataFrame({
         'type': "nAND DNAn DnAN DNnA NnAD nADN nDAN nNAD DnNA DAnN nDNA NAnD AnND NnDA NDAn AnDN DANn nNDA NADn NDnA ADnN ADNn ANDn ANnD".split(),
         'af': [43.50, 36.62, 28.34, 21.18, 15.33, 14.78, 9.00, 9.00, 8.77, 6.11, 4.67, 4.00, 3.00, 3.00, 3.00, 2.49, 2.00, 1.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00],
         'num_genera': [84, 57, 38, 31, 28, 19, 11, 9, 10, 8, 5, 5, 3, 3, 3, 3, 2, 1, 0, 0, 0, 0, 0, 0],
-    })    
+    })
     groups = [
         frozenset("DAnN NnAD".split()),
         frozenset("DNnA AnND".split()),
@@ -888,12 +1034,20 @@ def mansfield_kemp(S=50, l=1, with_delimiter='both'):
     typology['group'] = typology['type'].map(lambda t: rfutils.first(s for s in groups if t in s))
     af = typology[['group', 'af', 'num_genera']].drop_duplicates().groupby('group').sum().reset_index()
     af.columns = ['group', 'af_sum', 'num_genera_sum']
-    return pd.concat(list(gen())).merge(typology.merge(af)), codebook
+    return pd.concat(list(gen())), typology.merge(af)
+
+def plot_np_order(df, typology, depvar='af_sum', **kwds):
+    df = typology.merge(df[df['t']==df['t'].max()])[['af_sum', 'num_genera_sum', 'group', 'H_M_lower_bound', 'h_t']]
+    df['group_name'] = df['group'].map(lambda s: "/".join(sorted(s)))
+    return df
             
 def aanaa(S=50, l=1, with_delimiter='both'):
+    # NA* with up to 4 A's in 3 classes, number of A's is geometric
+    
+    
     # For A*N sequences, 
     # 1. Class-level information locality: higher mi adjective classes go closer. -- Yes, if MI differential is big enough.
-    # 2. Consistent AAN better than Gildea & Temperley inward-outward order. -- Yes, and higher ER, if differential is big enough.
+    # 2. Consistent AAN better than Gildea & Temperley inward-outward order. -- Yes, as long as with_delimiter='both' and p_halt > 0 --- consistent placement of N makes the boundary predictable.
     # 3. Class consistency is more important than individual pmi with noun. - Yes.
     # 4. Class-consistent ANA is better than G&T-style ANA. -- doesn't seem to work.
 
@@ -903,7 +1057,8 @@ def aanaa(S=50, l=1, with_delimiter='both'):
 
 
     # classes are defined by I[A:B|N] = 0. Conditionally independent given the N.
-    
+
+    # 5 adjectives, 5 nouns, 3 adjective classes:
     source, meanings, pmis, mis = s.astarn(5, 5, 3)
 
     # two representations of meaning wrt order of features
@@ -958,13 +1113,12 @@ def aanaa(S=50, l=1, with_delimiter='both'):
     forms_antipmi = c.form_probabilities(source, anti_by_pmi_naa, systematic, with_delimiter=with_delimiter)
     forms_consistent = c.form_probabilities(source, consistent_ana, systematic, with_delimiter=with_delimiter)
     
-
     curves = il.curves_from_sequences(forms_local['form'], forms_local['p'])
-    curves['type'] = 'local'
+    curves['type'] = 'consistent_local' # consistent local NAA
     curves2 = il.curves_from_sequences(forms_nonlocal['form'], forms_nonlocal['p'])
-    curves2['type'] = 'nonlocal'
+    curves2['type'] = 'consistent_nonlocal' # consistent nonlocal NAA
     curves3 = il.curves_from_sequences(forms_gt['form'], forms_gt['p'])
-    curves3['type'] = 'gt'
+    curves3['type'] = 'gt' 
     curves4 = il.curves_from_sequences(forms_antigt['form'], forms_antigt['p'])
     curves4['type'] = 'antigt'
     curves5 = il.curves_from_sequences(forms_pmi['form'], forms_pmi['p'])
@@ -976,12 +1130,194 @@ def aanaa(S=50, l=1, with_delimiter='both'):
 
     return pd.concat([curves, curves2, curves3, curves4, curves5, curves6, curves7]), mis
 
+
+def frequent_fusion_irregularity(V, k, S=None, l=2, coupling=1, how_many=2, with_delimiter=True, **kwds):
+    """ Minimizing E does *NOT* predict irregularity for frequent forms """
+    # would it predict fusion for high PMI forms?
+    assert how_many >= 1
+    if S is None:
+        S = V    
+    source, meanings = s.mostly_independent(*(V,)*k, coupling=coupling, **kwds)
+    codes = c.random_code(k*V, S, l, unique=True).reshape(k,V,l)
+    holistic = c.random_code(V**k, S, l*k, unique=True)
+    L = V**k
+    def gen():
+        forms = c.word_probabilities(source.reshape(*(V,)*k), codes, encode=c.encode_weak_contiguous, with_delimiter=with_delimiter).sort_values('probability', ascending=False, ignore_index=True)
+        the_forms = forms['form']
+        curves = il.curves_from_sequences(the_forms, forms['probability'])
+        curves['type'] = 'systematic'
+        yield curves
+
+        # Swap top 2 forms to simulate fusion/irregularity
+        forms_irrtop = pd.concat([the_forms[:how_many][::-1], the_forms[how_many:]])
+        curves = il.curves_from_sequences(forms_irrtop, forms['probability'])
+        curves['type'] = 'irrtop'
+        yield curves
+
+        forms_irrbottom = pd.concat([the_forms[:-how_many], the_forms[-how_many:][::-1]])
+        curves = il.curves_from_sequences(forms_irrbottom, forms['probability'])
+        curves['type'] = 'irrbottom'
+        yield curves
+
+        hol_forms = c.form_probabilities_np(source, holistic, with_delimiter=with_delimiter)['form']
+        curves = il.curves_from_sequences(hol_forms, forms['probability'])
+        curves['type'] = 'holistic'
+        yield curves
+
+        hybrid_top = pd.concat([hol_forms[:how_many], the_forms[how_many:]])
+        curves = il.curves_from_sequences(hybrid_top, forms['probability'])
+        curves['type'] = 'hybrid_top'
+        yield curves
+
+        hybrid_bottom = pd.concat([the_forms[:-how_many], hol_forms[-how_many:]])
+        curves = il.curves_from_sequences(hybrid_bottom, forms['probability'])
+        curves['type'] = 'hybrid_bottom'
+        yield curves
+
+    return pd.concat(list(gen())), codes, holistic
+
+def paradigmatic32(redundancy=1, coupling=0, with_delimiter=True, **kwds):
+    """ compare natural vs unnatural paradigm shapes. works with redundancy > 1 """
+    # kind of works with redundancy=3, but different entropy rates
+    source, meanings = s.mostly_independent(3, 2, coupling=coupling, **kwds) # 3x2
+    paradigmatic_mergehigh = np.repeat(np.array([
+        [0, 1], [0, 1], [0, 2],
+        [3, 4], [3, 4], [3, 5]
+    ]), redundancy, -1)
+    paradigmatic_mergelow = np.repeat(np.array([
+        [0, 1], [0, 2], [0, 2],
+        [3, 4], [3, 5], [3, 5]
+    ]), redundancy, -1)    
+    inconsistent = np.repeat(np.array([
+        [0, 1], [0, 1], [0, 2],
+        [3, 4], [3, 5], [3, 5]
+    ]), redundancy, -1)
+    nonconvex = np.repeat(np.array([
+        [0, 1], [0, 2], [0, 1],
+        [3, 4], [3, 5], [3, 4]
+    ]), redundancy, -1)
+    
+    def gen():
+        forms = c.form_probabilities_np(source.flatten(), paradigmatic_mergehigh, with_delimiter=with_delimiter)
+        curves = il.curves_from_sequences(forms['form'], forms['probability'])
+        curves['type'] = 'product_high'
+        yield curves
+
+        forms = c.form_probabilities_np(source.flatten(), paradigmatic_mergelow, with_delimiter=with_delimiter)
+        curves = il.curves_from_sequences(forms['form'], forms['probability'])
+        curves['type'] = 'product_low'
+        yield curves        
+
+        forms2 = c.form_probabilities_np(source.flatten(), inconsistent, with_delimiter=with_delimiter)
+        curves = il.curves_from_sequences(forms2['form'], forms2['probability'])
+        curves['type'] = 'inconsistent'
+        yield curves
+
+        forms2 = c.form_probabilities_np(source.flatten(), nonconvex, with_delimiter=with_delimiter)
+        curves = il.curves_from_sequences(forms2['form'], forms2['probability'])
+        curves['type'] = 'nonconvex'
+        yield curves        
+    return pd.concat(list(gen()))
+
+def paradigm_size_effect(A_min=2, A_max=10, B=2, S=None, l=1, with_delimiter=True, num_samples=100, coupling=.1, **kwds):
+    """ Works with low coupling. holistic increases with size; systematic stays constant. """
+    if S is None:
+        S = A_max * B
+    systematic_A = c.random_code(A_max, S, l, unique=True)
+    systematic_B = c.random_code(B, S, l, unique=True)
+    # need to control entropy rate at each A...
+    def gen():
+        for A in tqdm.tqdm(range(A_min, A_max + 1)):
+            source, meanings = s.mostly_independent(A, B, coupling=coupling, **kwds)
+            systematic = c.word_probabilities(
+                source,
+                [systematic_A, systematic_B],
+                encode=c.encode_weak_contiguous,
+                with_delimiter=with_delimiter
+            )
+            curves = il.curves_from_sequences(systematic['form'], systematic['probability'])
+            curves['type'] = 'systematic'
+            curves['A'] = A
+            curves['sample'] = 0
+            yield curves[curves['t'] == curves['t'].max()]
+
+            for i in range(num_samples):
+
+                # make holistic equivalent by permuting the systematic code
+                systematic['holistic'] = np.random.permutation(systematic['form'])
+                curves = il.curves_from_sequences(systematic['holistic'], systematic['probability'])
+                curves['type'] = 'holistic'
+                curves['sample'] = i + 1
+                curves['A'] = A
+                yield curves[curves['t'] == curves['t'].max()]
+
+    return pd.concat(list(gen()))
+
+def paradigmatic_holistic(A=3, B=2, num_words=4, S=4, l=1, with_delimiter=True, **kwds):
+    """ Try all the ways of encoding an AxB paradigm with w holistic words. """
+    source, meanings = s.mostly_independent(A, B, **kwds)
+    code = c.random_code(num_words, S, l, unique=True)
+    paradigms = c.paradigms(A*B, num_words)
+    def gen():
+        for paradigm in paradigms:
+            if not il.is_monotonically_increasing(paradigm):
+                ptype = 'nonconvex'
+            elif False: # TODO
+                ptype = 'inconsistent'
+            else:
+                ptype = 'product'
+            paradigm_code = np.array([code[i] for i in paradigm])
+            probs = c.form_probabilities_np(source.flatten(), paradigm_code, with_delimiter=with_delimiter)
+            curves = il.curves_from_sequences(probs['form'], probs['probability'])
+            curves['type'] = ptype
+            curves['paradigm'] = "".join(map(str, paradigm))
+            yield curves
+    return pd.concat(list(gen()))
+
+        
+# remaining things to show
+# (1) PCFG vs. regular vs. shuffled
+# A. comparing toy x-bar pcfgs, we have regular < CFG < scramble, although entropy rate is not controlled.
+# B. comparing German nested vs. Dutch cross-serial dependencies: if we have a pure pairwise dependency structure, then they are the same; otherwise Dutch is very slightly better than German.
+
+# (1) non-crossing syntax, in a toy lang and reality somehow.
+# real distribution vs. scrambled within CFG vs. scrambled totally
+# real PCFG vs. totally scrambled PCFG
+# PCFG vs. regular vs. subregular?
+# if subregular is best, why are languages CFGs?
+# interesting observation: CFGs can be ambiguous; regular grammars cannot.
+# Therefore, in general, for any matched context-free and regular grammar, H[regular] >= H[context-free].
+# 
+
+# (2) head direction consistency -- already established by the NAA study?
+
+# (3) unimorph systematicity using real distributions on features -- kinda shown...could add more languages.
+
+# (4) substantiation of the idea of morphemes as "bundles of highly correlated features". Use semantically-normed features of nouns, plus plurality, and show plurality is more independent?
+
+# (5) paradigmaticity: nice X x Y structure to paradigms, same number of distinctions of Y for each level of X.
+# -- maybe screw up the unimorph languages by collapsing different paradigm cells?
+# -- kind of works: product < nonconvex < inconsistent. TODO: do it using real probabilities
+
+# (DONE) complexity tradeoff: larger paradigms (eg Turkish) have a stronger pressure to be systematic than smaller ones (eg German)
+# -- Yes, works very well with simulated distributions!!
+# TODO: Do with real probabilities?
+
+# (DONE) lower-frequency parts of the paradigm should be more systematic? don't know if this follows -- does not work.
+#
+
+# (8) things involving the lattice curves / meaning kernel?  
+#
+
+# (9) category clustering and order permutations in unimorph using real forms
+
+# (10) RECURSION! Samples from PCFG vs. MCFG?
+# -- use bounded-depth PCFG code?
     
 
-    
 
-    
-    
+
+
 
 
 

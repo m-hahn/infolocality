@@ -21,38 +21,53 @@ def is_monotonic(comparator, sequence, epsilon=EPSILON):
 def is_monotonically_decreasing(sequence, epsilon=EPSILON):
     return is_monotonic(operator.ge, sequence, epsilon=epsilon)
 
+def is_monotonically_increasing(sequence, epsilon=EPSILON):
+    return is_monotonic(operator.le, sequence, epsilon=epsilon)
+
 def is_nonnegative(x, epsilon=EPSILON):
     return x + epsilon >= 0
 
-def curves_from_sequences(xs, weights=None, maxlen=None, labels=None, monitor=False):
-    counts = counts_from_sequences(xs, maxlen=maxlen, weights=weights, labels=labels, monitor=monitor)
+def curves_from_sequences(xs, weights=None, labels=None, **kwds):
+    counts = counts_from_sequences(xs, weights=weights, labels=labels, **kwds)
     if labels is None:
         label_values = []
     else:
         label_values = [counts[label] for label in labels.keys()]
-    curves = mle_curves_from_counts(counts['count'], counts['x_{<t}'], *label_values)
+    curves = curves_from_counts(counts['count'], counts['x_{<t}'], *label_values)
     return curves
 
-def lattice_curves_from_sequences(xs, labels, maxlen=None):
-    h = curves_from_sequences(xs, maxlen=maxlen)
-    hg = curves_from_sequences(xs, maxlen=maxlen, labels=labels).groupby(['t']).mean().reset_index()
-    hg.columns = "t h_t_G I_t_G H_M_G_lower_bound".split()
-    return pd.merge(h, hg)
+def lattice_curves_from_sequences(xs, labels, weights=None, **kwds):
+    # first get curves of h_t
+    h = curves_from_sequences(xs, weights=weights, **kwds)
+    
+    # then get curves of h_t given each individual g
+    hg = curves_from_sequences(xs, labels=labels, weights=weights, **kwds)
 
-def mle_curves_from_counts(counts, context, *labels):
+    # now average over the g -- ASSUMES EACH FORM HAS A UNIQUE LABEL
+    Z = weights.sum()
+    label_weights = pd.DataFrame(labels | {'weight': weights})
+    label_weights['weight'] = label_weights['weight'] / label_weights['weight'].sum() # normalize
+    hg = pd.merge(hg, label_weights)
+    hg['h_t'] = hg['weight'] * hg['h_t']
+    hG = hg[['t', 'h_t']].groupby(['t']).mean().reset_index()
+    hG.columns = ['t', 'h_t_g']
+    return pd.merge(h, hG)
+
+def curves_from_counts(counts, context, *labels):
     """ 
     Input: counts, a dataframe with columns 'x_{<t}' and 'count',
     where 'x_{<t}' gives a context, and count gives a weight or count
     for an item in that context.
     """ 
     t = context.map(len)
-    joint_logp = conditional_logp_mle(counts, t, *labels)
-    conditional_logp = conditional_logp_mle(counts, context, *labels)
-    return curves(t, joint_logp, conditional_logp, *labels) # TODO how to labels fit in here?
+    the_joint_logp = conditional_logp(counts, t, *labels)
+    the_conditional_logp = conditional_logp(counts, context, *labels)
+    return curves(t, the_joint_logp, the_conditional_logp, *labels) # TODO how to labels fit in here?
 
 def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=False):
     """ Return a dataframe with column x_{<t}, x_t, and count,
-    where count is the number of observations for the given x_{<t} followed by x_t. """
+    where count is the weighted number of observations for the given x_{<t} followed by x_t.
+    """
     if maxlen is None:
         xs = list(xs)
         maxlen = max(map(len, xs))
@@ -65,7 +80,7 @@ def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=Fa
     for x, w, *l in zip(tqdm.tqdm(xs, disable=not monitor), weights, *labels.values()):
         # x is a string/sequence.
         # w is a weight / probability / count.
-        # l is a sequence of labels.
+        # l is a sequence of label values.
         for context, x_t in thing_in_context(x):
             for subcontext in padded_subcontexts(context, maxlen):
                 counts[(*l, subcontext, x_t)] += w
@@ -75,13 +90,10 @@ def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=Fa
     df['count'] = counts.values()
     return df
 
-def logp_mle(counts):
-    Z = counts.sum()
-    return np.log(counts) - np.log(Z)
-
-def conditional_logp_mle(counts, *contexts):
+def conditional_logp(counts, *contexts):
     if not contexts:
-        return logp_mle(counts)
+        Z = counts.sum()
+        return np.log(counts) - np.log(Z)
     else:
         df =  pd.DataFrame({'count': counts})
         for i, context in enumerate(contexts):
@@ -137,7 +149,7 @@ def conditional_curves(t, joint_logp, conditional_logp, *labels):
     feature_names = h_t.index.names[1:]
     t_name = h_t.index.names[0]
     assert h_t.groupby(feature_names).agg(is_monotonically_decreasing).all()
-    I_t = (-h_t.groupby(feature_names).diff()).reset_index()
+    I_t = -h_t.groupby(feature_names).diff().reset_index()
     I_t['tI_t'] = I_t[t_name] * I_t[0]
     H_M_lower_bound = I_t.groupby(feature_names).cumsum()['tI_t']
     H_M_lower_bound[0] = 0
@@ -174,6 +186,11 @@ def ms_auc(curves):
     h = curves['h_t'].min()
     d_t = curves['h_t'] - h
     return np.trapz(y=d_t, x=curves['H_M_lower_bound'])
+
+def score(J, forms, weights=None, maxlen=None):
+    counts = counts_from_sequences(forms, weights=weights, maxlen=maxlen)
+    curves = curves_from_counts(counts['count'], counts['x_{<t}'])
+    return J(curves)
 
 def rjust(xs, length, value):
     """ rjust for general iterables, not just strings """
@@ -214,5 +231,9 @@ def thing_in_context(xs):
     for x in xs:
         yield restore(context), x
         context.append(x)
-
    
+if __name__ == '__main__':
+    import nose
+    nose.runmodule()
+ 
+
