@@ -957,6 +957,8 @@ def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter='both
     return np_order(source, meanings, systematic, with_delimiter=with_delimiter)
 
 def empirical_np_order(filename="de_np.csv", with_delimiter='both', truncate=0, len_limit=1):
+    # default len_limit=1 excludes singleton noun NPs
+    
     # Empirical MIs (lemmatized, unlemmatized)...
     # German, N=758,024 or 781,304 (unlemmatized)
     # N-Adj = 3.6, 5.6
