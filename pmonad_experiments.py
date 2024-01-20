@@ -14,6 +14,7 @@ import infoloc as il
 import shuffles as sh
 
 def demonstrate_systematic_learning_22(num_samples=1000, num_runs=1, **kwds):
+    """ 2^2!=24 possible languages. """
     return learn_from_samples(K=2, V=2, num_samples=num_samples, targets=[
         0, # fully systematic
         1, # cnot
@@ -21,6 +22,7 @@ def demonstrate_systematic_learning_22(num_samples=1000, num_runs=1, **kwds):
     ]*num_runs, **kwd)
 
 def demonstrate_systematic_learning_23(num_samples=20000, num_runs=1, **kwds):
+    """ 2**3!=40320 possible languages. """
     targets = [
         0, # strongly systematic
         1, # toffoli(1,2,3) -- flip on more frequent control bits
@@ -38,10 +40,12 @@ def demonstrate_systematic_learning_23(num_samples=20000, num_runs=1, **kwds):
     grammars = list(itertools.permutations(support))
     def gen():
         for target in targets:
+            curves = il.curves_from_sequences(grammars[target], probs)
             yield {
                 'target': target,
                 'grammar': grammars[target],
-                'ee': il.ee(il.curves_from_sequences(grammars[target], probs)),
+                'ee': il.ee(curves),
+                'ms_auc': il.ms_auc(curves),
             }
     return df, pd.DataFrame(gen())
 
@@ -50,19 +54,30 @@ def learn_from_samples(
         K=3,
         V=2,
         T=1,
-        split_alpha=1,
+        truncate=True,
+        split_alpha=1, # sample substrings of size k with probability \propto e^{-\alpha*k}
         maxlen=2,
         num_samples=10000,
         redundancy=1,
         positional=True):
 
-    # This is cryptography. The grammar is the key to be deciphered.
-    # Given uniformly distribution s = f_K(m), and knowledge of p(m),
-    # and lots of samples of s, how long to determine K?
+    """
+    Language learning as cryptography. The grammar is the key to be deciphered.
+    Given uniformly distribution s = f_K(m), and knowledge of p(m),
+    and lots of samples of s, how long to determine K?
 
-    # Intuitively if the data distribution is flat, then the key is harder to recover,
-    # because there are more keys that give rise to that distribution: structure-preserving
-    # keys are rare. 
+    Intuitively if the data distribution is flat, then the key is harder to recover,
+    because there are more keys that give rise to that distribution. On the other hand,
+    if the data distribution is peaky, then it is easier to recover the key,
+    because structure-preserving keys are rare. In cryptography, a good code has
+    "diffusion" and "confusion", which serve to create a flat data distribution. For
+    learnability, contrariwise, you want to MINIMIZE diffusion and confusion.
+
+    If the samples to be learned from are truncated---consisting of random contiguous substrings
+    from utterances---then high E should be detrimental to learning, because long-range
+    correlations will be missed. Therefore, a language is more "learnable" with small samples
+    if it has low E.
+    """
     alphabet = [chr(65+v) for v in range(V)]
     if K > 2:
         probs = 1/T * np.random.randn(V)
@@ -97,13 +112,16 @@ def learn_from_samples(
     def likelihood(g):
         utterances = source >> (lambda m: produce(g, m))
         # adjust probabilities
-        adjusted = type(source)(
-            (x, source.field.mul(source.field.from_p(len(x)+1), p))
-            for x, p in utterances.values
-        )
-        return adjusted >> (lambda utt:
-            context_size >> (lambda k:
-            source.uniform(pmonad.increments(utt + '#', k))))
+        if truncate:
+            adjusted = type(source)(
+                (x, source.field.mul(source.field.from_p(len(x)+1), p))
+                for x, p in utterances.values
+            )
+            return adjusted >> (lambda utt:
+                context_size >> (lambda k:
+                source.uniform(pmonad.increments(utt + '#', k))))
+        else:
+            return utterances
 
     # arrange into joint probabilities of shape GO, evidence of shape O
     print("Calculating likelihood array...", file=sys.stderr)
@@ -217,6 +235,9 @@ def random_xbar_pcfg(num_cats, num_heads, num_adjuncts, adjunct_optional=False, 
     """ Xbar-style random PCFG, with a matched finite-state grammar.
     If the PCFG is unambiguous, then its entropy is the same as its finite-state equivalent.
     """
+    # The FS grammar gives better E than the PCFG, so why do human languages have PCFG?
+    # probably it enables a kind of systematicity.
+    
     # XP -> y X'
     # X' -> (ZP) x
     # where each XP is associated with disjoint sets of adjuncts y and heads x.

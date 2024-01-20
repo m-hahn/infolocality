@@ -155,7 +155,7 @@ def experiment(
                 shuffled_forms = np.random.permutation(forms[mask]['form'])
                 new_forms.extend(shuffled_forms)
             new_forms = pd.Series(new_forms)
-            forms['forms_nonsysl'] = new_forms
+            forms['forms_nonsysl'] = new_forms 
             yield 'nonsysl', i, il.curves_from_sequences(new_forms, forms['count'])
             
     def gen():

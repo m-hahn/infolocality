@@ -27,9 +27,9 @@ def zipf_mandelbrot(N, s=1, q=0):
 
 def log_zipf_mandelbrot(N, s=1, q=0):
     k = np.arange(N) + 1
-    energy = -s * np.log(k+q)
-    lnZ = scipy.special.logsumexp(energy)
-    return energy - lnZ
+    energy = s * np.log(k+q)
+    lnZ = scipy.special.logsumexp(-energy)
+    return -energy - lnZ
 
 def factor(p, m, k):
     return p.reshape(*(m,)*k)
