@@ -4,7 +4,6 @@ from math import log, exp
 from collections import Counter
 
 import tqdm
-import rfutils
 import numpy as np
 import pandas as pd
 import scipy.special
@@ -12,9 +11,50 @@ import scipy.special
 DELIMITER = '#'
 EPSILON = 10 ** -5
 
+def buildup(iterable):
+    """ Build up
+
+    Example:
+    >>> list(buildup("abcd"))
+    [('a',), ('a', 'b'), ('a', 'b', 'c'), ('a', 'b', 'c', 'd')]
+
+    """
+    so_far = []
+    for x in iterable:
+        so_far.append(x)
+        yield tuple(so_far)
+
+def sliding(iterable, n):
+    """ Sliding
+
+    Yield adjacent elements from an iterable in a sliding window
+    of size n.
+
+    Parameters:
+        iterable: Any iterable.
+        n: Window size, an integer.
+
+    Yields:
+        Tuples of size n.
+
+    Example:
+        >>> lst = ['a', 'b', 'c', 'd', 'e']
+        >>> list(sliding(lst, 2))
+        [('a', 'b'), ('b', 'c'), ('c', 'd'), ('d', 'e')]
+
+    """
+    its = itertools.tee(iterable, n)
+    for i, iterator in enumerate(its):
+        for _ in range(i):
+            try:
+                next(iterator)
+            except StopIteration:
+                return zip([])
+    return zip(*its)
+
 def is_monotonic(comparator, sequence, epsilon=EPSILON):
     def conditions():
-        for x1, x2 in rfutils.sliding(sequence, 2):
+        for x1, x2 in sliding(sequence, 2):
             yield comparator(x1, x2) or comparator(x1, x2+epsilon) or comparator(x1, x2-epsilon)
     return all(conditions())
 
@@ -105,7 +145,7 @@ def conditional_logp(counts, *contexts):
         return np.log(counts) - np.log(df['Z'])
 
 def increments(xs):
-    for *context, x in rfutils.buildup(xs):
+    for *context, x in buildup(xs):
         yield tuple(context), x
 
 def incremental_logp(x, logp):
