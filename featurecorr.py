@@ -1,4 +1,5 @@
 import sys
+import random
 from collections import Counter
 
 import conllu
@@ -8,13 +9,22 @@ import scipy.stats
 import tqdm
 from plotnine import *
 
-CORPUS_FILENAMES = [
+EN_CORPUS_FILENAMES = [
     "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-GUM/all.conllu",
     "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-GUMReddit/all.conllu",
     "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-EWT/all.conllu",
 ]
+
+DE_CORPUS_FILENAMES = [
+    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-HDT/all.conllu",
+    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-GSD/all.conllu",    
+    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-LIT/all.conllu",    
+]
+
+CORPUS_FILENAMES = EN_CORPUS_FILENAMES
 NORMS_FILENAME = "/Users/canjo/data/lancaster_norms/norms_binary.csv"
 WORD_FIELD = 'Word'
+TOKEN_FIELD = 'lemma'
 MORPH_FEATURES = {'Number'}
 TARGET_POS = {'NOUN'}
 RELATIONS = {'obj'}
@@ -48,21 +58,36 @@ def extract_corpus(vectors,
                     features[feature] = token['feats'].get(feature)
                 yield tuple(features.values())
 
-def extract_word_pairs(vectors,
-                       corpus,
+def extract_word_pairs(corpus,
                        relations=RELATIONS,
                        target_pos=PAIR_POS,
-                       corpus_filenames=CORPUS_FILENAMES):
+                       corpus_filenames=CORPUS_FILENAMES,
+                       field=TOKEN_FIELD):
     for sentence in corpus:
         for token in sentence:
             if token['deprel'] in relations:
                 if (head_pos := token['head']) > 0:
                     head = sentence[head_pos - 1]
                     if ((head['upos'], token['upos']) in target_pos
-                        and (head_lemma := head['lemma'].casefold()) in vectors
-                        and (dep_lemma := token['lemma'].casefold()) in vectors):
-                        yield tuple(vectors[head_lemma]) + tuple(vectors[dep_lemma])
+                        and (headf := head[field]).isalpha()
+                        and (depf := token[field]).isalpha()):
+                        yield headf, depf
 
+def mi_from_pair_counts(keys, counts):
+    counts = list(counts)
+    x = Counter()
+    y = Counter()
+    Z = 0
+    for (one, two), count in zip(keys, counts):
+        x[one] += count
+        y[two] += count
+        Z += 1
+    return (
+        scipy.stats.entropy(list(x.values())) +
+        scipy.stats.entropy(list(y.values())) -
+        scipy.stats.entropy(counts)
+    )
+                        
 def pairwise_mis(feats, names, field='count'):
     print("Calculating MIs...", file=sys.stderr)
     k = len(names)
@@ -89,28 +114,52 @@ def word_pair_mis(corpus_filenames=CORPUS_FILENAMES,
                   norms_filename=NORMS_FILENAME,
                   word_field=WORD_FIELD,
                   relations=RELATIONS,
-                  target_pos=PAIR_POS):
+                  target_pos=PAIR_POS,
+                  token_field=TOKEN_FIELD):
     vectors = read_norms(norms_filename=norms_filename, word_field=word_field)
     names = (
         ["h_"+name for name in vectors.index] +
         ["d_"+name for name in vectors.index]
     )
     corpus = load_corpus(corpus_filenames)
-
-    counts = Counter(extract_word_pairs(
-        vectors,
+    tokens = extract_word_pairs(
         tqdm.tqdm(corpus),
         relations=relations,
         target_pos=target_pos,
-    ))
-    feats = pd.DataFrame(counts.keys())
-    feats['count'] = counts.values()
+        field=token_field,
+    )
+    vector_counts = Counter(
+        tuple(vectors[head_lemma]) + tuple(vectors[dep_lemma])
+        for head, dep in tokens
+        if (head_lemma := head.casefold()) in vectors and (dep_lemma := dep.casefold()) in vectors
+    )
+    feats = pd.DataFrame(vector_counts.keys())
+    feats['count'] = vector_counts.values()
     df = pairwise_mis(feats, names)
     df['within'] = (
         (df['i'].map(lambda s: s.startswith('d_')) & df['j'].map(lambda s: s.startswith('d_'))) |
         (df['i'].map(lambda s: s.startswith('h_')) & df['j'].map(lambda s: s.startswith('h_'))) 
     )
     return df
+
+def shuffled(xs):
+    ys = list(xs)
+    random.shuffle(ys)
+    return ys
+
+def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
+                         target_pos=PAIR_POS,
+                         relations=RELATIONS,
+                         token_field=TOKEN_FIELD):
+    corpus = load_corpus(corpus_filenames)
+    pairs = extract_word_pairs(
+        tqdm.tqdm(corpus),
+        relations=relations,
+        target_pos=target_pos,
+        field=token_field,
+    )
+    counts = Counter(pairs)
+    return counts
 
 def word_feature_mis(corpus_filenames=CORPUS_FILENAMES,
                      norms_filename=NORMS_FILENAME,
@@ -151,4 +200,4 @@ def main(type='morpheme'):
 
 if __name__ == '__main__':
     main(*sys.argv[1:])
-open
+

@@ -17,6 +17,7 @@ import infoloc as il
 import sources as s
 import codes as c
 import shuffles as sh
+import featurecorr as f
 
 def fusion_advantage(mi=1/2):
     p = s.mi_mix(mi)
@@ -221,12 +222,22 @@ def strong_combinatoriality(num_morphemes=4,
                             shuffle=True,
                             **kwds):
     # Defaults are set to remove redundancy.
+    # Considering distributions over k variables, p(x_1, ..., x_k), which approximately
+    # factorizes as iid p(x_1)...p(x_k).
+    # Then it is better to be strongly-systematic, because then your unigram distribution
+    # is minimal entropy (minimally mixing the iid source components).
+
+    # BUT:
     # We only get strong < weak when with_delimiter='left', or when considering M/S tradeoff instead of EE
     # otherwise the lower h_1 is offset by higher h_t, because in the strongly-systematic code,
     # it's hard to tell where you are in the utterance; therefore the lower unigram entropy is offset
     # by higher bigram entropy for the end-of-sequence symbol.
     # Strong systematicity would only be better if time index is not informative about distance from end.
-    
+
+    # What distribution could show the strong-systematicity advantage using pure E?
+    # -> Morpheme value needs to be uninformative about remaining utterance length.
+    # This will only work if length is p(k) \propto e^-k.
+    # But such a distribution cannot be represented in the current framework...
     num_meanings = num_morphemes**num_parts
 
     if source == 'zipf':
@@ -244,6 +255,8 @@ def strong_combinatoriality(num_morphemes=4,
         factored_source = s.product_distro(factored_source, morpheme_source)
     if coupling:
         source = s.couple(factored_source, joint_source, coupling=coupling, coupling_type=coupling_type)
+    else:
+        source = factored_source
     source = source.reshape((num_morphemes,)*num_parts)
     tc = s.tc(source)
 
@@ -1276,6 +1289,58 @@ def paradigmatic_holistic(A=3, B=2, num_words=4, S=4, l=1, with_delimiter=True, 
             yield curves
     return pd.concat(list(gen()))
 
+
+def dep_word_pairs(num_baseline_samples=1000,
+                   len_granularity=1,
+                   with_space=True,
+                   with_delimiter='both',
+                   **kwds):
+    counts = f.raw_word_pair_counts(**kwds) # English verb-object dependencies by default
+    
+    def gen_df(data):
+        for name, i, df in data:
+            df['type'] = name
+            df['sample'] = i
+            yield df
+            
+    def word_level():
+        forms, weights = list(counts.keys()), list(counts.values())
+        yield 'real', 0, pd.DataFrame({'mi': [f.mi_from_pair_counts(counts.keys(), counts.values())]})
+        for i in range(num_baseline_samples):
+            yield 'nonsys', i, pd.DataFrame({'mi': [f.mi_from_pair_counts(shuffled(counts.keys()), counts.values())]})
+
+    def letter_level():
+        forms = pd.Series([
+            "".join([
+                il.DELIMITER if with_delimiter else "",
+                x,
+                " " if with_space else "",
+                y,
+                il.DELIMITER if with_delimiter == "both" else "",
+            ])
+            for x, y in counts.keys()
+        ])
+        weights = pd.Series(list(counts.values()))
+        yield 'real', 0, il.curves_from_sequences(forms, weights)
+        
+        both = pd.DataFrame({'forms': forms, 'weights': weights})
+        both['len'] = both['forms'].map(len)
+        both = both.sort_values('len', ignore_index=True)
+        lenclass = both['len'] // len_granularity
+        forms, weights = both['forms'], both['weights']
+        for i in tqdm.tqdm(range(num_baseline_samples)):
+            yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights)
+            ds = sh.DeterministicScramble()
+            yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
+            # could form phonotactically ok-ish words using WOLEX?
+            new_forms = []
+            for length in lenclass.drop_duplicates(): # ascending order
+                mask = lenclass == length
+                shuffled_forms = np.random.permutation(forms[mask])
+                new_forms.extend(shuffled_forms)
+            yield 'nonsysl', i, il.curves_from_sequences(new_forms, weights)
+
+    return pd.concat(list(gen_df(word_level()))), pd.concat(list(gen_df(letter_level())))
         
 # remaining things to show
 # (1) PCFG vs. regular vs. shuffled
