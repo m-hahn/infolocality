@@ -1289,6 +1289,38 @@ def paradigmatic_holistic(A=3, B=2, num_words=4, S=4, l=1, with_delimiter=True, 
             yield curves
     return pd.concat(list(gen()))
 
+def mi_from_pair_counts(keys, counts):
+    counts = list(counts)
+    x = Counter()
+    y = Counter()
+    Z = 0
+    for (one, two), count in zip(keys, counts):
+        x[one] += count
+        y[two] += count
+        Z += 1
+    return (
+        scipy.stats.entropy(list(x.values())) +
+        scipy.stats.entropy(list(y.values())) -
+        scipy.stats.entropy(counts)
+    )
+
+def gen_df(data):
+    for name, i, df in data:
+        df['type'] = name
+        df['sample'] = i
+        yield df
+
+def word_level_mi(pair_counts, num_baseline_samples=1000):
+    """ Take word pairs from a corpus and compare their MI to shuffles """
+
+    def word_level():
+        forms, weights = list(pair_counts.keys()), list(pair_counts.values())
+        yield 'real', 0, pd.DataFrame({'mi': [mi_from_pair_counts(pair_counts.keys(), pair_counts.values())]})
+        for i in range(num_baseline_samples):
+            yield 'nonsys', i, pd.DataFrame({'mi': [mi_from_pair_counts(shuffled(pair_counts.keys()), pair_counts.values())]})
+
+    return pd.concat(list(gen_df(word_level())))            
+
 
 def dep_word_pairs(num_baseline_samples=1000,
                    len_granularity=1,
@@ -1296,31 +1328,35 @@ def dep_word_pairs(num_baseline_samples=1000,
                    with_delimiter='both',
                    **kwds):
     counts = f.raw_word_pair_counts(**kwds) # English verb-object dependencies by default
-    
-    def gen_df(data):
-        for name, i, df in data:
-            df['type'] = name
-            df['sample'] = i
-            yield df
-            
-    def word_level():
-        forms, weights = list(counts.keys()), list(counts.values())
-        yield 'real', 0, pd.DataFrame({'mi': [f.mi_from_pair_counts(counts.keys(), counts.values())]})
-        for i in range(num_baseline_samples):
-            yield 'nonsys', i, pd.DataFrame({'mi': [f.mi_from_pair_counts(shuffled(counts.keys()), counts.values())]})
+    return (
+        word_level_mi(counts, num_baseline_samples=num_baseline_samples),
+        letter_level(
+            counts,
+            num_baseline_samples=num_baseline_samples,
+            len_granularity=len_granularity,
+            with_space=with_space,
+            with_delimiter=with_delimiter
+        ),
+    )
 
-    def letter_level():
-        forms = pd.Series([
-            "".join([
-                il.DELIMITER if with_delimiter else "",
-                x,
-                " " if with_space else "",
-                y,
-                il.DELIMITER if with_delimiter == "both" else "",
-            ])
-            for x, y in counts.keys()
+def ngrams(n=2):
+    # start with strong n-gram models for 1:n, maybe neural
+    # use them to calculate cross-entropy in a test set, hence E
+    # compare to standard shuffles
+    pass
+
+def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_space=True, with_delimiter='both'):
+
+    def format_form(xs):
+        return "".join([
+            il.DELIMITER if with_delimiter else "",
+            (" " if with_space else "").join(xs),
+            il.DELIMITER if with_delimiter == 'both' else ""
         ])
-        weights = pd.Series(list(counts.values()))
+
+    def inner_letter_level():
+        forms = list(map(format_form, counts.keys()))
+        weights = list(counts.values())
         yield 'real', 0, il.curves_from_sequences(forms, weights)
         
         both = pd.DataFrame({'forms': forms, 'weights': weights})
@@ -1329,7 +1365,7 @@ def dep_word_pairs(num_baseline_samples=1000,
         lenclass = both['len'] // len_granularity
         forms, weights = both['forms'], both['weights']
         for i in tqdm.tqdm(range(num_baseline_samples)):
-            yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights)
+            yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # does not preserve entropy rate
             ds = sh.DeterministicScramble()
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
             # could form phonotactically ok-ish words using WOLEX?
@@ -1338,49 +1374,10 @@ def dep_word_pairs(num_baseline_samples=1000,
                 mask = lenclass == length
                 shuffled_forms = np.random.permutation(forms[mask])
                 new_forms.extend(shuffled_forms)
-            yield 'nonsysl', i, il.curves_from_sequences(new_forms, weights)
+            yield 'nonsysl', i, il.curves_from_sequences(new_forms, weights) 
 
-    return pd.concat(list(gen_df(word_level()))), pd.concat(list(gen_df(letter_level())))
+    return pd.concat(list(gen_df(inner_letter_level())))
         
-# remaining things to show
-# (1) PCFG vs. regular vs. shuffled
-# A. comparing toy x-bar pcfgs, we have regular < CFG < scramble, although entropy rate is not controlled.
-# B. comparing German nested vs. Dutch cross-serial dependencies: if we have a pure pairwise dependency structure, then they are the same; otherwise Dutch is very slightly better than German.
-
-# (1) non-crossing syntax, in a toy lang and reality somehow.
-# real distribution vs. scrambled within CFG vs. scrambled totally
-# real PCFG vs. totally scrambled PCFG
-# PCFG vs. regular vs. subregular?
-# if subregular is best, why are languages CFGs?
-# interesting observation: CFGs can be ambiguous; regular grammars cannot.
-# Therefore, in general, for any matched context-free and regular grammar, H[regular] >= H[context-free].
-# 
-
-# (2) head direction consistency -- already established by the NAA study?
-
-# (3) unimorph systematicity using real distributions on features -- kinda shown...could add more languages.
-
-# (4) substantiation of the idea of morphemes as "bundles of highly correlated features". Use semantically-normed features of nouns, plus plurality, and show plurality is more independent?
-
-# (5) paradigmaticity: nice X x Y structure to paradigms, same number of distinctions of Y for each level of X.
-# -- maybe screw up the unimorph languages by collapsing different paradigm cells?
-# -- kind of works: product < nonconvex < inconsistent. TODO: do it using real probabilities
-
-# (DONE) complexity tradeoff: larger paradigms (eg Turkish) have a stronger pressure to be systematic than smaller ones (eg German)
-# -- Yes, works very well with simulated distributions!!
-# TODO: Do with real probabilities?
-
-# (DONE) lower-frequency parts of the paradigm should be more systematic? don't know if this follows -- does not work.
-#
-
-# (8) things involving the lattice curves / meaning kernel?  
-#
-
-# (9) category clustering and order permutations in unimorph using real forms
-
-# (10) RECURSION! Samples from PCFG vs. MCFG?
-# -- use bounded-depth PCFG code?
-    
 
 
 

@@ -75,21 +75,6 @@ def extract_word_pairs(corpus,
                         and (depf := token[field]).isalpha()):
                         yield headf, depf
 
-def mi_from_pair_counts(keys, counts):
-    counts = list(counts)
-    x = Counter()
-    y = Counter()
-    Z = 0
-    for (one, two), count in zip(keys, counts):
-        x[one] += count
-        y[two] += count
-        Z += 1
-    return (
-        scipy.stats.entropy(list(x.values())) +
-        scipy.stats.entropy(list(y.values())) -
-        scipy.stats.entropy(counts)
-    )
-                        
 def pairwise_mis(feats, names, field='count'):
     print("Calculating MIs...", file=sys.stderr)
     k = len(names)
