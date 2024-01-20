@@ -4,7 +4,6 @@ import functools
 import random
 from collections import Counter
 
-import rfutils
 import tqdm
 import numpy as np
 import pandas as pd
@@ -67,7 +66,7 @@ def demonstrate_separation_advantage(num_meanings=100,
     source = s.factor(flat_source, num_meanings, num_meanings_per_word)
     code = c.random_code(num_meanings, num_signals, num_signals_per_morpheme)
     signal = c.word_probabilities(source, code, with_delimiter=with_delimiter, marginalize=False)
-    meanings = rfutils.cartesian_indices(num_meanings, num_meanings_per_word)
+    meanings = c.cartesian_indices(num_meanings, num_meanings_per_word)
     signal['m'] = list(meanings)
     for i in range(num_meanings_per_word):
         signal[i] = signal['m'].map(lambda x: x[i])
@@ -1046,10 +1045,13 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter='both', part
         frozenset("nNDA ADNn".split()),
         frozenset("nDNA ANDn".split()),
     ]
-    typology['group'] = typology['type'].map(lambda t: rfutils.first(s for s in groups if t in s))
+    typology['group'] = typology['type'].map(lambda t: first(s for s in groups if t in s))
     af = typology[['group', 'af', 'num_genera']].drop_duplicates().groupby('group').sum().reset_index()
     af.columns = ['group', 'af_sum', 'num_genera_sum']
     return pd.concat(list(gen())), typology.merge(af)
+
+def first(xs):
+    return next(iter(xs))
 
 def plot_np_order(df, typology, depvar='af_sum', **kwds):
     df = typology.merge(df[df['t']==df['t'].max()])[['af_sum', 'num_genera_sum', 'group', 'H_M_lower_bound', 'h_t']]

@@ -181,13 +181,24 @@ def uniform_code(M, S):
     uniform_code = rfutils.cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
     return np.array(list(rfutils.take(uniform_code, N)))
 
+def cartesian_power(xs, k):
+    xs = list(xs)
+    return itertools.product(*[xs]*k)
+
+def cartesian_indices(V, k):
+    return itertools.product(*[range(V)]*k)
+
+def cartesian_distinct_indices(V, k):
+    for sequence in cartesian_indices(V, k):
+        yield tuple(i*V + x for i, x in enumerate(sequence))
+
 def cartesian_distinct_forms(V, k):
-    numerals = rfutils.cartesian_indices(V, k)
+    numerals = cartesian_indices(V, k)
     for group in numerals:
         yield "".join(int_to_char(x+i*V) for i, x in enumerate(group))
 
 def cartesian_forms(V, k):
-    numerals = rfutils.cartesian_indices(V, k)
+    numerals = cartesian_indices(V, k)
     for group in numerals:
         yield "".join(map(int_to_char, group))
 
