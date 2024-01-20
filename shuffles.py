@@ -1,11 +1,10 @@
 import os
 import sys
+import csv
 import random
 import itertools
 from collections import deque
 
-import rfutils
-import rfutils.ordering
 import unimorph
 import numpy as np
 import pandas as pd
@@ -22,6 +21,22 @@ PROTEINS_PATH = "/Users/canjo/data/genome/"
 PROTEINS_FILENAME = "GRCh37_latest_protein.faa"
 UNIMORPH_PATH = "/Users/canjo/data/unimorph/"
 WOLEX_PATH = "/Users/canjo/data/wolex/"
+
+def reorder(xs, indices):
+    """ reorder
+
+    Elements of xs in the order specified by indices.
+    For all i, reorder(xs, order)[i] == xs[order[i]].
+    
+    Example:
+    >>> list(reorder(['a', 'b', 'c', 'd'], [3, 1, 2, 0]))
+    ['d', 'b', 'c', 'a']
+
+    """
+    xs = list(xs)
+    indices = list(indices)
+    assert len(xs) == len(indices)
+    return [xs[i] for i in indices]
 
 def extract_manner(anipa_phone):
     if anipa_phone.startswith("C"):
@@ -74,7 +89,7 @@ def shuffle_by_skeleton(xs, skeleton):
         for old_index, new_index in zip(old_indices, new_indices):
             reordering[old_index] = new_index # first pass, [None, 3, None, 5, None, 1]
     assert all(i is not None for i in reordering)
-    return rfutils.ordering.reorder(xs, reordering)
+    return reorder(xs, reordering)
 
 def read_faa(filename):
     def gen():
@@ -249,7 +264,7 @@ def scramble_form(s):
 
 @delimited_sequence_transformer
 def reorder_form(s, order):
-    return rfutils.ordering.reorder(s, order)
+    return reorder(s, order)
 
 @delimited_sequence_transformer
 def reorder_total(s, total_order):
@@ -296,7 +311,7 @@ def morpheme_orders(infl):
     features = [(x,) for x in features]
     n = len(features)
     for order in itertools.permutations(range(n)):
-        yield [('Lemma',)] + list(rfutils.ordering.reorder(features, order))
+        yield [('Lemma',)] + list(reorder(features, order))
 
 def order_score(J, f, data, weights=None):
     new_data = data.map(f)
@@ -308,21 +323,35 @@ def total_fusion_score(J, infl, fused_order, weights=None):
 def total_order_score(J, infl, order, weights=None):
     return order_scores(J, lambda x: reorder_total(x, order), infl, weights=weights)
 
+def the_only(xs):
+    """ Return the single value of a one-element iterable """
+    x, = xs
+    return x
+
 def permutation_scores(J, forms, weights, perms=None):
     # should take ~3hr to do a sweep over 9! permutations
     # of (3*3)!=362,880 permutations, 1296 are 3-3-contiguous (~3.6%)
     if perms is None:
-        l = rfutils.the_only(forms.map(len).unique()) - 2 # 2 delimiters
+        l = the_only(forms.map(len).unique()) - 2 # 2 delimiters
         perms = itertools.permutations(range(l))
     for perm in perms:
         yield order_score(J, lambda s: reorder_form(s, perm), forms, weights), perm
+
+def write_dicts(file, lines):
+    lines_iter = iter(lines)
+    first_line = next(lines_iter)
+    writer = csv.DictWriter(file, first_line.keys())
+    writer.writeheader()
+    writer.writerow(first_line)
+    for line in lines_iter:
+        writer.writerow(line)        
 
 def write_dfs(file, dfs):
     def gen():
         for df in dfs:
             for _, row in df.iterrows():
                 yield dict(row)
-    rfutils.write_dicts(file, gen())
+    write_dicts(file, gen())
 
 def main(arg):
     if arg == 'unimorph':

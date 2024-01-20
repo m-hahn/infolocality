@@ -14,8 +14,8 @@ from plotnine import *
 
 import infoloc as il
 import sources as s
-import codes as c
 import shuffles as sh
+import codes as c
 import featurecorr as f
 
 def fusion_advantage(mi=1/2):

@@ -170,7 +170,7 @@ def paradigms(num_meanings, num_words):
             else:
                 yield mapping[x]
     sequences = set()                
-    for sequence in rfutils.cartesian_indices(num_words, num_meanings):
+    for sequence in cartesian_indices(num_words, num_meanings):
         relabeled = tuple(relabel(sequence))
         if max(relabeled) == num_words - 1:
             sequences.add(relabeled)
@@ -178,7 +178,7 @@ def paradigms(num_meanings, num_words):
 
 def uniform_code(M, S):
     uniform_code_len = np.log(N) / np.log(num_signals)
-    uniform_code = rfutils.cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
+    uniform_code = cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
     return np.array(list(rfutils.take(uniform_code, N)))
 
 def cartesian_power(xs, k):
@@ -202,14 +202,16 @@ def cartesian_forms(V, k):
     for group in numerals:
         yield "".join(map(int_to_char, group))
 
+flat = itertools.chain.from_iterable        
+
 def repeating_blocks(V, k, m, overlapping=True):
     vocab = list(range(V))
     def gen():
-        for vs in rfutils.cartesian_indices(V, m):
+        for vs in cartesian_indices(V, m):
             parts = [
                 [(1-overlapping)*b*V + vs[b]]*k
                 for b in range(m)
             ]
-            yield DELIMITER + "".join(rfutils.flat(ints_to_str(x) for x in parts)) + DELIMITER
+            yield DELIMITER + "".join(flat(ints_to_str(x) for x in parts)) + DELIMITER
     return pd.DataFrame({'form': list(gen())})
 
