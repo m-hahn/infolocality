@@ -9,16 +9,18 @@ import scipy.stats
 import tqdm
 from plotnine import *
 
+UD_PATH = "/Users/canjo/data/cliqs/ud-treebanks-v2.8/"
+
 EN_CORPUS_FILENAMES = [
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-GUM/all.conllu",
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-GUMReddit/all.conllu",
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_English-EWT/all.conllu",
+    UD_PATH + "UD_English-GUM/all.conllu",
+    UD_PATH + "UD_English-GUMReddit/all.conllu",
+    UD_PATH + "UD_English-EWT/all.conllu",
 ]
 
 DE_CORPUS_FILENAMES = [
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-HDT/all.conllu",
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-GSD/all.conllu",    
-    "/Users/canjo/data/cliqs/ud-treebanks-v2.8/UD_German-LIT/all.conllu",    
+    UD_PATH + "UD_German-HDT/all.conllu",
+    UD_PATH + "UD_German-GSD/all.conllu",    
+    UD_PATH + "UD_German-LIT/all.conllu",    
 ]
 
 CORPUS_FILENAMES = EN_CORPUS_FILENAMES
