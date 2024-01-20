@@ -2,7 +2,6 @@ import itertools
 import random
 from collections import Counter
 
-import rfutils
 import numpy as np
 import scipy.special
 import scipy.stats
@@ -12,6 +11,24 @@ import einops
 import tqdm
 
 MK_PATH = "data/generated-MI-distros/generated-MI-distros_%s.txt"
+
+def cartesian_indices(V, k):
+    return itertools.product(*[range(V)]*k)
+
+def the_unique(xs):
+    """ Return the unique value of an iterable of equal values. 
+    Example: the_unique([3,3,3,3]) -> 3
+    Throws ValueError if there is more than one unique value,
+    or if the input iterable is empty.
+    """
+    try:
+        first, *rest = xs
+    except ValueError:
+        raise ValueError("Empty iterable passed to the_unique")
+    for r in rest:
+        if first != r:
+            raise ValueError("Unequal values in iterable passed to the_unique: %s != %s" % (str(first), str(r)))
+    return first
 
 def log_rem(*shape, T=1):
     return scipy.special.log_softmax(1/T*np.random.randn(*shape))
@@ -105,7 +122,7 @@ def mostly_independent(*Vs, coupling=1, source='zipf', consistent=True, systemat
         ps = [zipf_mandelbrot(V, **kwds) for V in Vs]
     elif source == 'rem':
         if consistent:
-            V = rfutils.the_unique(Vs)
+            V = the_unique(Vs)
             p = rem(V, **kwds)
             ps = [p for _ in range(len(Vs))]
         else:
@@ -143,7 +160,7 @@ def dependents(V, k, coupling=1, source='rem', consistent=True, **kwds):
     ])
     mis = [mi(h[:, None] * conditional) for conditional in conditionals]
     def gen():
-        for configuration in rfutils.cartesian_indices(V, k+1):
+        for configuration in cartesian_indices(V, k+1):
             d = {'h': ('h', configuration[0])}
             d |= {'d%d' % i : d for i, d in enumerate(configuration[1:])}
             p = h[configuration[0]]
@@ -174,8 +191,8 @@ def astarn(num_A, num_N, num_classes=1, p_halt=.5, maxlen=4, source='rem', coupl
             d = {'n': n, 'p': N[n]}
             for k in range(maxlen):
                 p_k = (1-p_halt)**k * (p_halt if k <= maxlen else 1) / num_classes
-                for classes in rfutils.cartesian_indices(num_classes, k):
-                    for adjectives in rfutils.cartesian_indices(num_A, k):
+                for classes in cartesian_indices(num_classes, k):
+                    for adjectives in cartesian_indices(num_A, k):
                         d = {'n': (n,)}
                         d |= {str(i) : (c,a) for i, (c, a) in enumerate(zip(classes, adjectives))}
                         p = N[n] * p_k * np.prod([ANs[c,n,a] for c, a in zip(classes, adjectives)])
