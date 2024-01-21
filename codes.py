@@ -5,12 +5,40 @@ import random
 import numpy as np
 import scipy.special
 import pandas as pd
-import rfutils
 
 import infoloc as il
 import huffman
 
 DELIMITER = '#'
+
+def segments(iterable, breakpoints):
+    """ Segments
+
+    Break iterable into contiguous segments at specified index
+    breakpoints. New iterators are formed starting with each breakpoint.
+
+    Params:
+        iterable: An iterable to be broken into segments.
+        breakpoints: An iterable of integers representing indices
+            for where to break the iterable.
+
+    Yields:
+        Iterators over items from iterable.
+
+    Example:
+        >>> lst = ['foo', 'bar', 'baz', 'qux', 'zim', 'cat', 'dog']
+        >>> list(map(list, segments(lst, (3,4))))
+        [['foo', 'bar', 'baz'], ['qux'], ['zim', 'cat', 'dog']]
+
+    """
+    xs = iter(iterable)
+    previous_breakpoint = 0
+    for breakpoint in breakpoints:
+        subit = it.islice(xs, breakpoint - previous_breakpoint)
+        yield subit
+        consume(subit)
+        previous_breakpoint = breakpoint
+    yield xs
 
 def ljust(xs, length, value):
     xs = list(xs)
@@ -52,11 +80,11 @@ def rand_str(V, k):
 def is_contiguous(k, l, perm):
     canonical_order = range(k*l)
     breaks = [l*k_ for k_ in range(k)]
-    words = rfutils.segments(canonical_order, breaks)
+    words = segments(canonical_order, breaks)
     index_sets = {frozenset(word) for word in words}
     return all(
         frozenset(perm_segment) in index_sets
-        for perm_segment in rfutils.segments(perm, breaks)
+        for perm_segment in segments(perm, breaks)
     )
 
 def encode_contiguous_positional_random_order(ms, code):
@@ -93,9 +121,12 @@ def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True
 
 concatenate = "".join
 
-@rfutils.memoize
-def char_gensym(x, _state=itertools.count()):
-    return int_to_char(next(_state))
+def char_gensym(x, _state={}):
+    if x in _state:
+        return _state[x]
+    else:
+        _state[x] = int_to_char(len(_state))
+        return _state[x]
 
 def identity_code(features):
     return "".join(map(char_gensym, features))
@@ -177,9 +208,9 @@ def paradigms(num_meanings, num_words):
     return sequences
 
 def uniform_code(M, S):
-    uniform_code_len = np.log(N) / np.log(num_signals)
+    uniform_code_len = np.log(N) / np.log(num_signals) # what is N?
     uniform_code = cartesian_indices(num_signals, int(np.ceil(uniform_code_len)))
-    return np.array(list(rfutils.take(uniform_code, N)))
+    return BROKEN#np.array(list(take(uniform_code, N)))
 
 def cartesian_power(xs, k):
     xs = list(xs)
