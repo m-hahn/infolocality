@@ -23,6 +23,12 @@ DE_CORPUS_FILENAMES = [
     UD_PATH + "UD_German-LIT/all.conllu",    
 ]
 
+CS_CORPUS_FILENAMES = [
+    UD_PATH + "UD_Czech-CAC/all.conllu",
+    UD_PATH + "UD_Czech-CLTT/all.conllu",
+    UD_PATH + "UD_Czech-FicTree/all.conllu",
+]
+
 CORPUS_FILENAMES = EN_CORPUS_FILENAMES
 NORMS_FILENAME = "/Users/canjo/data/lancaster_norms/norms_binary.csv"
 WORD_FIELD = 'Word'

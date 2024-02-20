@@ -50,7 +50,18 @@ def parse_files(filenames):
         with open(filename) as infile:
             yield from conllu.parse_incr(infile)
 
-def main(*filenames):
+def extract_adjectives(*filenames):
+    if not filenames:
+        filenames = FILENAMES
+    writer = csv.DictWriter(sys.stdout, fieldnames=[NOUN, ADJ])
+    writer.writeheader()
+    sentences = parse_files(filenames)
+    nps = extract(tqdm.tqdm(sentences), allow_multiple_adjectives=True)
+    for np in nps:
+        d = {NOUN: np._asdict()[NOUN], ADJ: np._asdict()[ADJ]}
+        writer.writerow(d)
+
+def extract_nps(*filenames):
     if not filenames:
         filenames = FILENAMES
     writer = csv.DictWriter(sys.stdout, fieldnames=[NOUN, ADJ, NUM, DET])
@@ -61,6 +72,6 @@ def main(*filenames):
         writer.writerow(np._asdict())
 
 if __name__ == '__main__':
-    main(*sys.argv[1:])
+    extract_adjectives(*sys.argv[1:])
                         
                 

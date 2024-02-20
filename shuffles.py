@@ -5,6 +5,7 @@ import random
 import itertools
 from collections import deque
 
+import tqdm
 import unimorph
 import numpy as np
 import pandas as pd
@@ -21,6 +22,8 @@ PROTEINS_PATH = "/Users/canjo/data/genome/"
 PROTEINS_FILENAME = "GRCh37_latest_protein.faa"
 UNIMORPH_PATH = "/Users/canjo/data/unimorph/"
 WOLEX_PATH = "/Users/canjo/data/wolex/"
+
+DEFAULT_NUM_SAMPLES = 100
 
 def reorder(xs, indices):
     """ reorder
@@ -172,7 +175,10 @@ def genome_comparison(**kwds):
     return comparison(read_faa, PROTEINS_PATH, [PROTEINS_FILENAME], scrambles, **kwds)
 
 def wolex_comparison(**kwds):
-    wolex_filenames = [filename for filename in os.listdir(WOLEX_PATH) if filename.endswith(".Parsed.CSV-utf8")]
+    wolex_filenames = [
+        filename for filename in os.listdir(WOLEX_PATH)
+        if filename.endswith(".Parsed.CSV-utf8")
+    ]
     ds = DeterministicScramble(seed=0)
     scrambles = {
         'even_odd': even_odd,
@@ -207,7 +213,7 @@ def ud_morpheme_order_scores(lang, with_lemma=True):
     for order in orders:
         yield total_order_score(il.ms_auc, data, order), total_order_score(il.ee_lower_bound, data, order), order
         
-def comparison(read, path, langs, scrambles, maxlen=10, seed=0):
+def comparison(read, path, langs, scrambles, maxlen=10, seed=0, num_samples=DEFAULT_NUM_SAMPLES):
     for lang in langs:
         filename = os.path.join(path, lang)
         print("Analyzing", filename, file=sys.stderr)
@@ -228,14 +234,17 @@ def comparison(read, path, langs, scrambles, maxlen=10, seed=0):
         ht_real['real'] = 'real'
         ht_real['lang'] = lang
         ht_real['n'] = n
+        ht_real['sample'] = 0
         yield ht_real
 
-        for scramble_name, scramble_fn in scrambles.items():
-            ht = il.curves_from_sequences(wordforms['form'].map(scramble_fn), maxlen=maxlen, weights=weights)
-            ht['real'] = scramble_name
-            ht['lang'] = lang
-            ht['n'] = n
-            yield ht
+        for i in tqdm.tqdm(range(num_samples)):
+            for scramble_name, scramble_fn in scrambles.items():
+                ht = il.curves_from_sequences(wordforms['form'].map(scramble_fn), maxlen=maxlen, weights=weights)
+                ht['real'] = scramble_name
+                ht['lang'] = lang
+                ht['n'] = n
+                ht['sample'] = i
+                yield ht
             
 def strip(xs, y):
     result = xs

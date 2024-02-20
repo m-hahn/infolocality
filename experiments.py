@@ -1,4 +1,5 @@
 import sys
+import math
 import itertools
 import functools
 import random
@@ -143,7 +144,7 @@ def demonstrate_contiguity_preference(num_meanings=10,
     """
     # Source is zipfian and split into k components each with M possible values
     if source == 'zipf':
-        flat_source = s.zipf_mandelbrot(num_meanings**num_meanings_per_words, **kwds)
+        flat_source = s.zipf_mandelbrot(num_meanings**num_meanings_per_word, **kwds)
     elif source == 'rem':
         flat_source = s.rem(num_meanings**num_meanings_per_word, **kwds)
     source = s.factor(flat_source, num_meanings, num_meanings_per_word)
@@ -154,9 +155,10 @@ def demonstrate_contiguity_preference(num_meanings=10,
     # Get signal probabilities.
     signal = c.word_probabilities(source, code, with_delimiter=with_delimiter)
     
-    # Go through global permutations  
+    # Go through global permutations
+    print(math.factorial(num_meanings_per_word*num_signals_per_morpheme), file=sys.stderr)
     def gen():
-        for perm in itertools.permutations(range(num_meanings_per_word*num_signals_per_morpheme)):
+        for perm in tqdm.tqdm(itertools.permutations(range(num_meanings_per_word*num_signals_per_morpheme))):
             reordered = signal['form'].map(lambda s: sh.reorder_form(s, perm))
             curves = il.curves_from_sequences(reordered, weights=signal['probability']) # need to exp?
             ms = il.ms_auc(curves)
@@ -196,6 +198,8 @@ def summarize(source, code, with_delimiter='both'):
     signal = c.form_probabilities_np(source, code, with_delimiter=with_delimiter)
     curves = il.curves_from_sequences(signal['form'], signal['probability'])
     return curves
+
+# Strong combinatoriality with E 
 
 def strong_combinatoriality_sweep(min_coupling=0, max_coupling=10, num_steps=10, num_samples=10, **kwds):
     perturbations = np.linspace(min_coupling, max_coupling, num_steps)
@@ -968,7 +972,7 @@ def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter='both
     systematic, codebook = c.random_systematic_code(meanings, S, l, unique=True)
     return np_order(source, meanings, systematic, with_delimiter=with_delimiter)
 
-def empirical_np_order(filename="de_np.csv", with_delimiter='both', truncate=0, len_limit=1):
+def empirical_np_order(filename="data/de_np.csv", with_delimiter='both', truncate=0, len_limit=1):
     # default len_limit=1 excludes singleton noun NPs
     
     # Empirical MIs (lemmatized, unlemmatized)...
@@ -990,7 +994,7 @@ def empirical_np_order(filename="de_np.csv", with_delimiter='both', truncate=0, 
         rename={'N': 'n', 'Adj': 'A', 'Num': 'N', 'Det': 'D'}
     )
     print("Loaded source.", file=sys.stderr)
-    return np_order(ps, meanings, c.identity, with_delimiter=with_delimiter, parts='nAND')
+    return np_order(ps, meanings, c.identity_code, with_delimiter=with_delimiter, parts='nAND')
 
 def np_order(source, meanings, code=c.identity_code, with_delimiter='both', parts="nAND"):    
     def codes():
@@ -1008,7 +1012,7 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter='both', part
             curves = il.curves_from_sequences(forms['form'], forms['p'])
             curves['type'] = name
             yield curves
-        return
+        return # skip the below; not informative
         # nonsystematic code, following the last permutation (DNAn, a good one)
         the_forms = map(code, order)
         df = pd.DataFrame({'form': the_forms, 'p': forms['p']})
@@ -1381,6 +1385,9 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
     return pd.concat(list(gen_df(inner_letter_level())))
         
 
+# Ideas / Todo
+# 1. Correct strong systematicity study, or switch everything to MS tradeoff... 
+# 2. Adjective order with empirical frequencies across languages, and baselines as in AANAA
 
 
 

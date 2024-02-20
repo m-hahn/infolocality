@@ -34,9 +34,10 @@ def segments(iterable, breakpoints):
     xs = iter(iterable)
     previous_breakpoint = 0
     for breakpoint in breakpoints:
-        subit = it.islice(xs, breakpoint - previous_breakpoint)
+        subit = itertools.islice(xs, breakpoint - previous_breakpoint)
         yield subit
-        consume(subit)
+        for x in subit:
+            pass
         previous_breakpoint = breakpoint
     yield xs
 
@@ -78,6 +79,7 @@ def rand_str(V, k):
     return ints_to_str(ints)
 
 def is_contiguous(k, l, perm):
+    """ Return whether permutation perm when applied to a string with k components of length l preserves contiguity """
     canonical_order = range(k*l)
     breaks = [l*k_ for k_ in range(k)]
     words = segments(canonical_order, breaks)
