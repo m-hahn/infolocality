@@ -3,6 +3,7 @@ import random
 from collections import Counter
 
 import conllu
+import glob
 import pandas as pd
 import numpy as np
 import scipy.stats
@@ -35,8 +36,74 @@ WORD_FIELD = 'Word'
 TOKEN_FIELD = 'lemma'
 MORPH_FEATURES = {'Number'}
 TARGET_POS = {'NOUN'}
-RELATIONS = {'obj'}
-PAIR_POS = {('VERB', 'NOUN')}
+VO_RELATIONS = {'obj'}
+VO_PAIR_POS = {('VERB', 'NOUN')}
+AN_RELATIONS = {'amod'}
+AN_PAIR_POS = {('NOUN', 'ADJ')}
+
+# defaults
+RELATIONS = VO_RELATIONS
+PAIR_POS = VO_PAIR_POS
+
+def gather_corpora(path=UD_PATH):
+    the_glob = path + "UD_*"
+    filenames = glob.glob(the_glob)
+    result = {}
+    for filename in filenames:
+        if not bad_corpus(filename.split("/")[-1]):
+            language = filename.split("_")[-1].split("-")[0]
+            if language in result:
+                result[language].append(filename)
+            else:
+                result[language] = [filename]
+    return result
+
+def bad_corpus(filename):
+    bads = [
+            '-PUD',
+            '-PDT',
+            '-ESL',
+            '-Pronouns',
+            '-ParTUT',
+            '-FQB',
+            '-PROIEL',
+            '-TOROT',
+            '-FarPaHC',
+            '-IcePaHC',
+            '-Valico',
+            '-TuDeT',
+            '-Nonstandard',
+
+            'Latin',
+            'Ancient_Greek',
+            'Gothic',
+            'Classical_Chinese',
+            
+            'Akkadian',
+            'Akuntsu',
+            'Apurina',
+            'Buryat',
+            'Guajajara',
+            'Hindi_English',
+            'Kiche',
+            'Komi_Permyak',
+            'Swedish_Sign_Language',
+            'Turkish_German',
+            
+            'Korean',
+            'Cantonese',
+            'Chinese',
+            'Japanese',
+            
+            'Amharic',
+            'Khunsari',
+            'Arabic',
+            'Assyrian',
+            'Hebrew',
+            'Persian',
+            'Uyghur',
+    ]
+    return any(bad in filename for bad in bads)
 
 def read_norms(norms_filename=NORMS_FILENAME,
                word_field=WORD_FIELD):

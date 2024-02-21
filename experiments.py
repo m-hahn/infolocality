@@ -1371,7 +1371,7 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
         lenclass = both['len'] // len_granularity
         forms, weights = both['forms'], both['weights']
         for i in tqdm.tqdm(range(num_baseline_samples)):
-            yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # does not preserve entropy rate
+            yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # note: does not preserve entropy rate
             ds = sh.DeterministicScramble()
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
             # could form phonotactically ok-ish words using WOLEX?
@@ -1384,10 +1384,12 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
 
     return pd.concat(list(gen_df(inner_letter_level())))
         
-
 # Ideas / Todo
 # 1. Correct strong systematicity study, or switch everything to MS tradeoff... 
 # 2. Adjective order with empirical frequencies across languages, and baselines as in AANAA
+# 3. Agreement baselines: why is there agreement? why does it target certain dependencies andd not others? Idea: very low MI -> agreement bad; some MI -> some agreement good
+#    1. Shuffle the agreement forms on adjectives/verbs -- grab a different form of the same lemma deterministically as a function of features. 
+# 4. Better morphology study of some kind?
 
 
 
