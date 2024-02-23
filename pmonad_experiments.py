@@ -15,11 +15,13 @@ import shuffles as sh
 
 def demonstrate_systematic_learning_22(num_samples=1000, num_runs=1, **kwds):
     """ 2^2!=24 possible languages. """
+    # works with redundancy=2, positional=False, split_alpha=1
+    # final posterior is 1/2 because of symmetry 
     return learn_from_samples(K=2, V=2, num_samples=num_samples, targets=[
         0, # fully systematic
         1, # cnot
         7, # weakly systematic
-    ]*num_runs, **kwd)
+    ]*num_runs, **kwds)
 
 def demonstrate_systematic_learning_23(num_samples=20000, num_runs=1, **kwds):
     """ 2**3!=40320 possible languages. """
@@ -36,7 +38,13 @@ def demonstrate_systematic_learning_23(num_samples=20000, num_runs=1, **kwds):
         25000,
         30000, # nonsystematic
     ]
-    df, support, probs = learn_from_samples(K=3, V=2, num_samples=num_samples, targets=targets*num_runs, **kwds)
+    df, support, probs = learn_from_samples(
+        K=3,
+        V=2,
+        num_samples=num_samples,
+        targets=tqdm.tqdm(targets*num_runs),
+        **kwds
+    )
     grammars = list(itertools.permutations(support))
     def gen():
         for target in targets:
@@ -80,9 +88,9 @@ def learn_from_samples(
     """
     alphabet = [chr(65+v) for v in range(V)]
     if K > 2:
-        probs = 1/T * np.random.randn(V)
+        probs = scipy.special.log_softmax(1/T * np.random.randn(V)) # random
     else:
-        probs = scipy.special.log_softmax([-1/T, 1/T])
+        probs = scipy.special.log_softmax([-1/T, 1/T]) 
     character_source = pmonad.Enumeration(list(zip(alphabet, probs)))
     string_source = pmonad.Enumeration.ret("")
     
@@ -133,10 +141,10 @@ def learn_from_samples(
 
     def gen():
         for target in rfutils.interruptible(targets):
-            print("Running target grammar %d" % target, file=sys.stderr)
+            #print("Running target grammar %d" % target, file=sys.stderr)
             target_grammar = grammars_support[target]
             prior_array = -log(len(grammars_support)) * np.ones(len(grammars_support))
-            for i in tqdm.tqdm(range(num_samples)):
+            for i in range(num_samples):
                 observed = np.random.choice(
                     range(len(likelihood_index)),
                     p=np.exp(likelihood_array[target])
