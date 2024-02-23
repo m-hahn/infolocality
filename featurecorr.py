@@ -53,9 +53,9 @@ def gather_corpora(path=UD_PATH):
         if not bad_corpus(filename.split("/")[-1]):
             language = filename.split("_")[-1].split("-")[0]
             if language in result:
-                result[language].append(filename)
+                result[language].append(filename + "/all.conllu")
             else:
-                result[language] = [filename]
+                result[language] = [filename + "/all.conllu"]
     return result
 
 def bad_corpus(filename):
