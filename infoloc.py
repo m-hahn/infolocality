@@ -125,7 +125,7 @@ def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=Fa
             for subcontext in padded_subcontexts(context, maxlen):
                 counts[(*l, subcontext, x_t)] += w
 
-    df = pd.DataFrame(counts.keys())
+    df = pd.DataFrame(counts.keys()) # potential blowup
     df.columns = list(labels.keys()) + ['x_{<t}', 'x_t']
     df['count'] = counts.values()
     return df
@@ -222,7 +222,10 @@ def ee(curves):
     return curves['H_M_lower_bound'].max()
 
 def ms_auc(curves):
-    """ Area under the memory--surprisal trade-off curve. """
+    """
+    Area under the memory--surprisal trade-off curve.
+    Only comparable when two curves have the same entropy rate.
+    """
     h = curves['h_t'].min()
     d_t = curves['h_t'] - h
     return np.trapz(y=d_t, x=curves['H_M_lower_bound'])
