@@ -137,16 +137,22 @@ def extract_word_pairs(corpus,
                        relations=RELATIONS,
                        target_pos=PAIR_POS,
                        corpus_filenames=CORPUS_FILENAMES,
-                       field=TOKEN_FIELD):
+                       field=TOKEN_FIELD,
+                       keep_order=False):
     for sentence in corpus:
-        for token in sentence:
+        for i, token in enumerate(sentence):
             if token['deprel'] in relations:
                 if (head_pos := token['head']) > 0:
                     head = sentence[head_pos - 1]
                     if ((head['upos'], token['upos']) in target_pos
                         and (headf := head[field]).isalpha()
                         and (depf := token[field]).isalpha()):
-                        yield headf, depf
+                        if keep_order and head_pos < i:
+                            yield headf, depf
+                        elif keep_order:
+                            yield depf, headf
+                        else:
+                            yield headf, depf
 
 def pairwise_mis(feats, names, field='count'):
     print("Calculating MIs...", file=sys.stderr)
@@ -210,13 +216,15 @@ def shuffled(xs):
 def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
                          target_pos=PAIR_POS,
                          relations=RELATIONS,
-                         token_field=TOKEN_FIELD):
+                         token_field=TOKEN_FIELD,
+                         keep_order=False):
     corpus = load_corpus(corpus_filenames)
     pairs = extract_word_pairs(
         tqdm.tqdm(corpus),
         relations=relations,
         target_pos=target_pos,
         field=token_field,
+        keep_order=keep_order,
     )
     counts = Counter(pairs)
     return counts

@@ -199,17 +199,102 @@ def summarize(source, code, with_delimiter='both'):
     curves = il.curves_from_sequences(signal['form'], signal['probability'])
     return curves
 
-# Strong combinatoriality with E 
+# when is systematicity *bad*?
+# -- In ABC, if BC have MI, A.BC is better than A.B.C
 
 def strong_combinatoriality_sweep(min_coupling=0, max_coupling=10, num_steps=10, num_samples=10, **kwds):
     perturbations = np.linspace(min_coupling, max_coupling, num_steps)
     def gen():
         for perturbation in tqdm.tqdm(perturbations):
             for sample in range(num_samples):
-                df = strong_combinatoriality(coupling=perturbation, **kwds)
+                df = strong_combinatoriality_variable(coupling=perturbation, **kwds)
                 df['sample'] = sample
                 df['coupling'] = perturbation
                 yield df
+    return pd.concat(list(gen()))
+
+def star_upto(V, K):
+    for k in range(1, K+1):
+        yield from s.cartesian_indices(V, k)
+
+def strong_combinatoriality_variable(
+        num_morphemes=4,
+        morpheme_rate=.5,
+        morpheme_length=1,
+        maxlen=10,
+        vocab_size=4,
+        with_delimiter='both',
+        coupling=0,
+        coupling_type='product',
+        source='zipf',
+        debug=False,
+        shuffle=True,
+        len_granularity=1,
+        **kwds):
+    if source == 'zipf':
+        morpheme_source = s.zipf_mandelbrot(num_morphemes, **kwds)
+        if shuffle:
+            np.random.shuffle(morpheme_source)
+    elif source == 'rem':
+        morpheme_source = s.rem(num_morphemes, **kwds)
+
+    meanings = list(star_upto(num_morphemes, maxlen))
+    unnormalized_source = np.array([
+        morpheme_rate**len(m) * (1 - morpheme_rate) * np.prod(morpheme_source[list(m)])
+        for m in meanings
+    ])
+    source = unnormalized_source / unnormalized_source.sum()
+    if coupling:
+        if source=='zipf':
+            joint_source = s.zipf_mandelbrot(len(meanings), **kwds)
+            if shuffle:
+                np.random.shuffle(joint_source)
+        else:
+            joint_source = s.rem(len(meanings), **kwds)
+        
+        new_source = s.couple(source, joint_source, coupling=coupling, coupling_type=coupling_type)
+        tc = new_source @ (np.log(new_source) - np.log(source))
+        source = new_source
+    else:
+        tc = 0
+    
+    # Strongly systematic mapping from a morpheme to a "word"
+    strong_code = c.random_code(num_morphemes, vocab_size, morpheme_length, unique=True)
+    shuffles = random.sample(list(itertools.permutations(range(num_morphemes))), maxlen)
+    weak_codes = [strong_code[list(shuffle)] for shuffle in shuffles] # one code per morpheme position
+    signals = {
+        'strong': c.form_probabilities(
+            source,
+            meanings,
+            c.systematic_code(c.as_code(strong_code)),
+            with_delimiter=with_delimiter,
+        ),
+        'weak': c.form_probabilities(
+            source,
+            meanings,
+            c.weakly_systematic_code(list(map(c.as_code, weak_codes))),
+            with_delimiter=with_delimiter,
+        ),
+    }
+    signals['nonsys'] = pd.DataFrame({
+        'form': shuffled(signals['strong']['form']),
+        'probability': source,
+    })
+    signals['nonsysl'] = pd.DataFrame({
+        'form': shuffle_preserving_length(signals['strong']['form'], granularity=len_granularity),
+        'probability': source,
+    })
+        
+    def gen():
+        for name, signal in signals.items():
+            curves = il.curves_from_sequences(signal['form'], weights=signal['probability'])
+            curves['type'] = name
+            curves['tc'] = tc
+            yield curves
+
+    if debug:
+        breakpoint()
+
     return pd.concat(list(gen()))
 
 def strong_combinatoriality(num_morphemes=4,
@@ -235,7 +320,7 @@ def strong_combinatoriality(num_morphemes=4,
     # otherwise the lower h_1 is offset by higher h_t, because in the strongly-systematic code,
     # it's hard to tell where you are in the utterance; therefore the lower unigram entropy is offset
     # by higher bigram entropy for the end-of-sequence symbol.
-    # Strong systematicity would only be better if time index is not informative about distance from end.
+   # Strong systematicity would only be better if time index is not informative about distance from end.
 
     # What distribution could show the strong-systematicity advantage using pure E?
     # -> Morpheme value needs to be uninformative about remaining utterance length.
@@ -682,7 +767,6 @@ def id_vs_cnot4(i23=.9, i14=0, **kwds):
     # For systematic langs: local < interleaved < nonlocal, good
     # For nonsystematic langs: fuse23 < fuse34 < fuse21 = fuse31.
 
-
     # Intuition for why fuse23_nonlocal is not worse than fuse23:
     # In these languages, "E" means "the more common M3 given M2" and "F" means "the less common M3 given M2"
     # Thus, entropy of EF is *NOT* reduced by knowing CD! There is actually *LESS* MI here. (decorrelation)
@@ -710,7 +794,7 @@ def systematic_columns(code):
     return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
 
 def three_sweep(i12=0, i23=0, p0=2/3, redundancy=1, **kwds):
-    """ Sweep through all unambiguous positional codes for a 3-bit source. """
+    """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
     # p0 argument only used if i12=i23=0
     if not i12 and not i23:
         assert p0 <= .9
@@ -736,14 +820,27 @@ def three_sweep(i12=0, i23=0, p0=2/3, redundancy=1, **kwds):
             curves['code'] = str(code)
             curves['systematic'] = systematic_columns(code)
             curves['ee'] = il.ee(curves)
-            curves['mus_auc'] = il.ms_auc(curves)
+            curves['ms_auc'] = il.ms_auc(curves)
             yield curves
     return pd.concat(list(gen()))
 
-def id_vs_cnot3(i12=0, i23=0.9, redundancy=1, **kwds):
-    # I_12 = 0.
+
+# in the strong systematicity sweep, we're seeing an advantage for systematicity
+# when the input bits are independent. but here, we're seeing no advantage for
+# systematicity. why?
+
+def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, make_plot=False, **kwds):
+    source = s.product_distro(s.flip(p0 + .15), s.flip(p0))
+    if i23:
+        joint = np.array([1, 0, 0, 2]) / 3
+        new_source = i23 * joint + (1-i23) * source
+        mi = s.mi(new_source.reshape(2,2))
+        source = new_source
+    else:
+        mi = 0
+    source = s.product_distro(s.flip(p0 + .3), source)
     # I_23 = 0.5
-    source = s.mi_mix3(i12, i23)
+    #source = s.mi_mix3(i12, i23)
     
     id_code = np.repeat(np.array([
         [0, 2, 4],
@@ -789,37 +886,46 @@ def id_vs_cnot3(i12=0, i23=0.9, redundancy=1, **kwds):
         [3, 1, 4],                
     ]), redundancy, -1)
 
+    holistic = np.array(shuffled(id_code))
+        
+
     df1 = summarize(source, id_code, **kwds)
     df1['type'] = 'id'
     df2 = summarize(source, fuse12, **kwds)
     df2['type'] = 'cnot12'
     df3 = summarize(source, fuse23, **kwds)
     df3['type'] = 'cnot23'
+    df4 = summarize(source, holistic, **kwds)
+    df4['type'] = 'holistic'
 
-    df = pd.concat([df1, df2, df3])
+    df = pd.concat([df1, df2, df3, df4])
+    df['mi'] = mi
 
-    plot = (
-        ggplot(df, aes(x='t+1', y='h_t/np.log(2)', color='type'))
-        + geom_line(size=1.1)
-        + labs(x='Markov order t', y='Markov entropy rate hₜ', color='')
-        + xlim(None, 3)
-        + theme_classic()
-        + guides(color=False)
-        
-        + geom_text(aes(x=2.35, y=2.4, label='"L₁·L₂₃"'), color='black')
-        + geom_text(aes(x=2.35, y=2.3, label='"E=1.83 bits"'), color='black')
-        + geom_segment(aes(x=2.1, y=2.37, xend=1.17, yend=2.1), color='black')
-
-        + geom_text(aes(x=2.35, y=1.9, label='"L₁·L₂·L₃"'), color='black')
-        + geom_text(aes(x=2.35, y=1.8, label='"E=1.58 bits"'), color='black')
-        + geom_segment(aes(x=2.1, y=1.86, xend=1.62, yend=1.5), color='black')
-
-        + geom_text(aes(x=2.35, y=1.4, label='"L₁₂·L₃"'), color='black')
-        + geom_text(aes(x=2.35, y=1.3, label='"E=2.06 bits"'), color='black')
-        + geom_segment(aes(x=2.1, y=1.35, xend=1.92, yend=1.16), color='black')                
-    )    
+    if make_plot:
+        plot = (
+            ggplot(df, aes(x='t+1', y='h_t/np.log(2)', color='type'))
+            + geom_line(size=1.1)
+            + labs(x='Markov order t', y='Markov entropy rate hₜ', color='')
+            + xlim(None, 3)
+            + theme_classic()
+            + guides(color=False)
+            
+            + geom_text(aes(x=2.35, y=2.4, label='"L₁·L₂₃"'), color='black')
+            + geom_text(aes(x=2.35, y=2.3, label='"E=1.83 bits"'), color='black')
+            + geom_segment(aes(x=2.1, y=2.37, xend=1.17, yend=2.1), color='black')
+            
+            + geom_text(aes(x=2.35, y=1.9, label='"L₁·L₂·L₃"'), color='black')
+            + geom_text(aes(x=2.35, y=1.8, label='"E=1.58 bits"'), color='black')
+            + geom_segment(aes(x=2.1, y=1.86, xend=1.62, yend=1.5), color='black')
+            
+            + geom_text(aes(x=2.35, y=1.4, label='"L₁₂·L₃"'), color='black')
+            + geom_text(aes(x=2.35, y=1.3, label='"E=2.06 bits"'), color='black')
+            + geom_segment(aes(x=2.1, y=1.35, xend=1.92, yend=1.16), color='black')                
+        )
+        return df, plot
+    else:
+        return df
     
-    return df, plot
 
 
 
@@ -828,7 +934,6 @@ def huffman_systematic_vs_not(first_prob=1/3, **kwds):
     # It's just a product of an independent (1/3,2/3) * (1/2,1/4,1/8,1/8)
     # There are multiple legitimate Huffman codes for this source, one systematic and one not.
     # The systematic Huffman code has a better MS tradeoff due to less long-term dependencies -- conditional on delimiters. Why?
-    # Should use with_delimiter='left'
     source = s.product_distro(s.flip(first_prob), np.array([1/2, 1/4, 1/8, 1/8]))
     systematic_huffman = np.array([
         [0, 0],
@@ -1332,8 +1437,9 @@ def dep_word_pairs(num_baseline_samples=1000,
                    len_granularity=1,
                    with_space=True,
                    with_delimiter='both',
+                   keep_order=True,
                    **kwds):
-    counts = f.raw_word_pair_counts(**kwds) # English verb-object dependencies by default
+    counts = f.raw_word_pair_counts(keep_order=keep_order, **kwds) # English verb-object dependencies by default
     return (
         word_level_mi(counts, num_baseline_samples=num_baseline_samples),
         letter_level(
@@ -1344,6 +1450,15 @@ def dep_word_pairs(num_baseline_samples=1000,
             with_delimiter=with_delimiter
         ),
     )
+
+def shuffle_preserving_length(forms: pd.Series, granularity=1):
+    lenclass = forms.map(len) // granularity
+    new_forms = []
+    for length in lenclass.drop_duplicates(): # ascending order
+        mask = lenclass == length
+        shuffled_forms = np.random.permutation(forms[mask])
+        new_forms.extend(shuffled_forms)
+    return new_forms
 
 def ngrams(n=2):
     # start with strong n-gram models for 1:n, maybe neural
@@ -1368,19 +1483,13 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
         both = pd.DataFrame({'forms': forms, 'weights': weights})
         both['len'] = both['forms'].map(len)
         both = both.sort_values('len', ignore_index=True)
-        lenclass = both['len'] // len_granularity
         forms, weights = both['forms'], both['weights']
         for i in tqdm.tqdm(range(num_baseline_samples)):
             yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # note: does not preserve entropy rate
             ds = sh.DeterministicScramble()
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
             # could form phonotactically ok-ish words using WOLEX?
-            new_forms = []
-            for length in lenclass.drop_duplicates(): # ascending order
-                mask = lenclass == length
-                shuffled_forms = np.random.permutation(forms[mask])
-                new_forms.extend(shuffled_forms)
-            yield 'nonsysl', i, il.curves_from_sequences(new_forms, weights) 
+            yield 'nonsysl', i, il.curves_from_sequences(shuffle_preserving_length(forms, granularity=len_granularity))
 
     return pd.concat(list(gen_df(inner_letter_level())))
         
