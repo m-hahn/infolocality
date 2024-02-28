@@ -121,6 +121,11 @@ def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True
         df['form'] = DELIMITER + df['form'] + DELIMITER
     return df.groupby(['form']).sum().reset_index()
 
+def as_code(code: np.array):
+    def f(m):
+        return "".join(map(str, code[m]))
+    return f
+
 concatenate = "".join
 
 def char_gensym(x, _state={}):
@@ -139,6 +144,11 @@ def systematic_code(code, combination_fn=concatenate):
         return combination_fn(strings)
     return composed_code
 
+def weakly_systematic_code(codes, combination_fn=concatenate):
+    def composed_code(features: Iterable) -> str:
+        return combination_fn(code(feature) for code, feature in zip(codes, features))
+    return composed_code
+
 def random_systematic_code(meanings, S, l, unique=False, combination_fn=concatenate):
     # meanings is an iterable of feature bundles. Feature bundles are iterables of features.
     # strongly systematic.
@@ -147,17 +157,17 @@ def random_systematic_code(meanings, S, l, unique=False, combination_fn=concaten
     codebook = dict(zip(value_set, map(ints_to_str, random_digits)))
     return systematic_code(codebook.__getitem__, combination_fn=combination_fn), codebook
 
-def form_probabilities(p, meanings, code, with_delimiter='left'):
+def form_probabilities(p, meanings, code, with_delimiter='both'):
     """ code is a mapping from meanings (iterables of feature bundles) to strings """
     forms = map(code, meanings)
-    df = pd.DataFrame({'form': forms, 'p': p})
+    df = pd.DataFrame({'form': forms, 'probability': p})
     if with_delimiter == 'left':
         df['form'] = DELIMITER + df['form']
     elif with_delimiter:
         df['form'] = DELIMITER + df['form'] + DELIMITER    
     return df.groupby(['form']).sum().reset_index()
 
-def form_probabilities_np(source, code, with_delimiter='left'):
+def form_probabilities_np(source, code, with_delimiter='both'):
     """ code is an array of same-length integers representing symbols """
     def gen():
         for i, m in enumerate(itertools.product(*map(range, source.shape))):
