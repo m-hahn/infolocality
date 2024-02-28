@@ -138,16 +138,20 @@ def extract_word_pairs(corpus,
                        target_pos=PAIR_POS,
                        corpus_filenames=CORPUS_FILENAMES,
                        field=TOKEN_FIELD,
-                       keep_order=False):
+                       keep_order=False,
+                       require_adjacent=False):
     for sentence in corpus:
-        for i, token in enumerate(sentence):
+        for token in sentence:
             if token['deprel'] in relations:
                 if (head_pos := token['head']) > 0:
-                    head = sentence[head_pos - 1]
-                    if ((head['upos'], token['upos']) in target_pos
+                    dep_pos = token['id']
+                    head = next(tok for tok in sentence if tok['id'] == head_pos)
+                    if (
+                        (not require_adjacent or head_pos == dep_pos - 1 or head_pos == dep_pos + 1)
+                        and (head['upos'], token['upos']) in target_pos
                         and (headf := head[field]).isalpha()
                         and (depf := token[field]).isalpha()):
-                        if keep_order and head_pos < i:
+                        if keep_order and head_pos < dep_pos:
                             yield headf, depf
                         elif keep_order:
                             yield depf, headf
@@ -217,7 +221,8 @@ def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
                          target_pos=PAIR_POS,
                          relations=RELATIONS,
                          token_field=TOKEN_FIELD,
-                         keep_order=False):
+                         keep_order=False,
+                         require_adjacent=False):
     corpus = load_corpus(corpus_filenames)
     pairs = extract_word_pairs(
         tqdm.tqdm(corpus),
@@ -225,6 +230,7 @@ def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
         target_pos=target_pos,
         field=token_field,
         keep_order=keep_order,
+        require_adjacent=require_adjacent,
     )
     counts = Counter(pairs)
     return counts
