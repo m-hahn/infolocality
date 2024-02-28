@@ -1440,9 +1440,7 @@ def dep_word_pairs(num_baseline_samples=1000,
                    keep_order=True,
                    require_adjacent=True,
                    **kwds):
-    counts = f.raw_word_pair_counts( # English AN dependencies by default
-        target_pos=f.AN_PAIR_POS,
-        relations=f.AN_RELATIONS,
+    counts = f.raw_word_pair_counts( # English VO dependencies by default
         keep_order=keep_order,
         require_adjacent=require_adjacent,
         **kwds
