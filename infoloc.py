@@ -2,6 +2,7 @@ import itertools
 import operator
 from math import log, exp
 from collections import Counter
+from typing import *
 
 import tqdm
 import numpy as np
@@ -104,12 +105,17 @@ def curves_from_counts(counts, context, *labels):
     the_conditional_logp = conditional_logp(counts, context, *labels)
     return curves(t, the_joint_logp, the_conditional_logp, *labels) # TODO how to labels fit in here?
 
-def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=False):
+def counts_from_sequences(xs: Iterable[Sequence],
+                          weights: Optional[Iterable],
+                          labels=None,
+                          maxlen=None,
+                          monitor=False):
     """ Return a dataframe with column x_{<t}, x_t, and count,
     where count is the weighted number of observations for the given x_{<t} followed by x_t.
     """
     if maxlen is None:
-        xs = list(xs)
+        if not isinstance(xs, Sequence):
+            xs = list(xs)
         maxlen = max(map(len, xs))
     if weights is None:
         weights = itertools.repeat(1)
@@ -125,7 +131,7 @@ def counts_from_sequences(xs, weights=None, labels=None, maxlen=None, monitor=Fa
             for subcontext in padded_subcontexts(context, maxlen):
                 counts[(*l, subcontext, x_t)] += w
 
-    df = pd.DataFrame(counts.keys()) # potential blowup
+    df = pd.DataFrame(counts.keys()) 
     df.columns = list(labels.keys()) + ['x_{<t}', 'x_t']
     df['count'] = counts.values()
     return df
@@ -141,6 +147,7 @@ def conditional_logp(counts, *contexts):
         context_cols = list(range(len(contexts)))
         Z_context = df.groupby(context_cols).sum().reset_index() # this is slow...
         Z_context.columns = [*context_cols, 'Z']
+        # big blowup here:
         df = df.join(Z_context.set_index(context_cols), on=context_cols) # preserve order
         return np.log(counts) - np.log(df['Z'])
 
@@ -252,7 +259,7 @@ def test_rjust():
 
 def padded_subcontexts(context, maxlen):
     yield ""
-    for length in range(1, maxlen): # TODO: used to have a +1 here, why?
+    for length in range(1, maxlen): # need a +1?
         try:
             yield context[-length:].rjust(length, DELIMITER)
         except AttributeError:
@@ -264,7 +271,7 @@ def restorer(xs):
     else:
         return tuple            
             
-def thing_in_context(xs):
+def thing_in_context(xs: Sequence[Any]):
     restore = restorer(xs)
     if xs[0] is DELIMITER:
         context = [DELIMITER]
