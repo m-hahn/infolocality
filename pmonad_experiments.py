@@ -13,6 +13,8 @@ import pcfg
 import infoloc as il
 import shuffles as sh
 
+flat = itertools.product.from_iterable
+
 def demonstrate_systematic_learning_22(num_samples=1000, num_runs=1, **kwds):
     """ 2^2!=24 possible languages. """
     # works with redundancy=2, positional=False, split_alpha=1
@@ -26,11 +28,11 @@ def demonstrate_systematic_learning_22(num_samples=1000, num_runs=1, **kwds):
 def demonstrate_systematic_learning_23(num_samples=20000, num_runs=1, **kwds):
     """ 2**3!=40320 possible languages. """
     targets = [
-        0, # strongly systematic
+        0, # id(1,2,3)
         1, # toffoli(1,2,3) -- flip on more frequent control bits
         5040, # toffoli(not(1), not(2), 3) -- flip on less frequent control bits
         121, # cnot(2,3) -- flip on more frequent control bit
-        5046, # cnot(not(2),3) -- flip on less frequent control bit
+        5046, # cnot(not(2), 3) -- flip on less frequent control bit
         11536, # weakly systematic -- if positional=True, no different from strongly systematic
         10000, # nonsystematic
         15000,
@@ -139,27 +141,28 @@ def learn_from_samples(
     ])
     likelihood_index = sorted([v for v, _ in sorted(likelihood(0))])
 
-    def gen():
-        for target in rfutils.interruptible(targets):
-            #print("Running target grammar %d" % target, file=sys.stderr)
-            target_grammar = grammars_support[target]
-            prior_array = -log(len(grammars_support)) * np.ones(len(grammars_support))
-            for i in range(num_samples):
-                observed = np.random.choice(
-                    range(len(likelihood_index)),
-                    p=np.exp(likelihood_array[target])
-                )
-                joint = prior_array + likelihood_array[:, observed] # shape G
-                posterior_array = scipy.special.log_softmax(joint, -1) # shape G
-                yield {
-                    'target': str(target),
-                    'i': i,
-                    'data': likelihood_index[observed],
-                    'posterior': posterior_array[target],
-                    'entropy': -(np.exp(posterior_array) * posterior_array).sum(),
-                }
-                prior_array = posterior_array
-    return pd.DataFrame(list(gen())), strings, source_probs
+    def run_target(target):
+        #print("Running target grammar %d" % target, file=sys.stderr)
+        target_grammar = grammars_support[target]
+        prior_array = -log(len(grammars_support)) * np.ones(len(grammars_support))
+        for i in range(num_samples):
+            observed = np.random.choice(
+                range(len(likelihood_index)),
+                p=np.exp(likelihood_array[target])
+            )
+            joint = prior_array + likelihood_array[:, observed] # shape G
+            posterior_array = scipy.special.log_softmax(joint, -1) # shape G
+            yield {
+                'target': str(target),
+                'i': i,
+                'data': likelihood_index[observed],
+                'posterior': posterior_array[target],
+                'entropy': -(np.exp(posterior_array) * posterior_array).sum(),
+            }
+            prior_array = posterior_array
+
+    results = flat(map(run_target, rfutils.interruptible(targets)))
+    return pd.DataFrame(results), strings, source_probs
         
 def tap(x):
     print(x)
