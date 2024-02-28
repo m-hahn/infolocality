@@ -1438,8 +1438,15 @@ def dep_word_pairs(num_baseline_samples=1000,
                    with_space=True,
                    with_delimiter='both',
                    keep_order=True,
+                   require_adjacent=True,
                    **kwds):
-    counts = f.raw_word_pair_counts(keep_order=keep_order, **kwds) # English verb-object dependencies by default
+    counts = f.raw_word_pair_counts( # English AN dependencies by default
+        target_pos=f.AN_PAIR_POS,
+        relations=f.AN_RELATIONS,
+        keep_order=keep_order,
+        require_adjacent=require_adjacent,
+        **kwds
+    ) 
     return (
         word_level_mi(counts, num_baseline_samples=num_baseline_samples),
         letter_level(
@@ -1453,6 +1460,7 @@ def dep_word_pairs(num_baseline_samples=1000,
 
 def shuffle_preserving_length(forms: pd.Series, granularity=1):
     lenclass = forms.map(len) // granularity
+    assert il.is_monotonically_increasing(lenclass)
     new_forms = []
     for length in lenclass.drop_duplicates(): # ascending order
         mask = lenclass == length
@@ -1487,18 +1495,19 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
         for i in tqdm.tqdm(range(num_baseline_samples)):
             yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # note: does not preserve entropy rate
             ds = sh.DeterministicScramble()
+            # could form phonotactically ok-ish words using WOLEX?            
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
-            # could form phonotactically ok-ish words using WOLEX?
-            yield 'nonsysl', i, il.curves_from_sequences(shuffle_preserving_length(forms, granularity=len_granularity))
+            shuffled_forms = shuffle_preserving_length(forms, granularity=len_granularity)
+            yield 'nonsysl', i, il.curves_from_sequences(shuffled_forms, weights)
 
     return pd.concat(list(gen_df(inner_letter_level())))
         
 # Ideas / Todo
-# 1. Correct strong systematicity study, or switch everything to MS tradeoff... 
+# DONE. Correct strong systematicity study, or switch everything to MS tradeoff...
 # 2. Adjective order with empirical frequencies across languages, and baselines as in AANAA
 # 3. Agreement baselines: why is there agreement? why does it target certain dependencies andd not others? Idea: very low MI -> agreement bad; some MI -> some agreement good
 #    1. Shuffle the agreement forms on adjectives/verbs -- grab a different form of the same lemma deterministically as a function of features. 
-# 4. Better morphology study of some kind?
+# 4. Word-level probability shuffles. Would this be counterevidence?
 
 
 
