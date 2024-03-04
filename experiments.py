@@ -851,7 +851,6 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, incre
         5046: 'id(1) cnot(not(2), 3)',
     }
 
-    breakpoint()
     def gen():
         for i, permutation in tqdm.tqdm(enumerate(permutations), total=math.factorial(2**3)):
             code = id_code[list(permutation)]
