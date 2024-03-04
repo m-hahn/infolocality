@@ -854,7 +854,11 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=.1, **kw
             curves['ee'] = il.ee(curves)
             curves['ms_auc'] = il.ms_auc(curves)
             yield curves
-    return pd.concat(list(gen()))
+            
+    df = pd.concat(list(gen()))
+    df['mi'] = mi
+    df['coupling'] = i23
+    return df
 
 # in the strong systematicity sweep, we're seeing an advantage for systematicity
 # when the input bits are independent. but here, we're seeing no advantage for
