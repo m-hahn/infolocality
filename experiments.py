@@ -276,6 +276,8 @@ def strong_combinatoriality_variable(
             with_delimiter=with_delimiter,
         ),
     }
+    signals['strong']['len'] = signals['strong']['form'].map(len)
+    signals['strong'].sort_values('len', inplace=True)
     signals['nonsys'] = pd.DataFrame({
         'form': shuffled(signals['strong']['form']),
         'probability': source,
@@ -775,7 +777,8 @@ def id_vs_cnot4(i23=.9, i14=0, **kwds):
     
     return df, source, the_langs
 
-def systematic_columns(code):
+def classify_code3(code):
+    """ Classify 3-bit codes in terms of degree of systematicity """
     patterns = {
         (0,0,0,0,1,1,1,1),
         (0,0,1,1,0,0,1,1),
@@ -793,43 +796,71 @@ def systematic_columns(code):
                 i += 1
     return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
 
-def three_sweep(i12=0, i23=0, p0=2/3, redundancy=1, **kwds):
+def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=.1, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
-    # p0 argument only used if i12=i23=0
-    if not i12 and not i23:
-        assert p0 <= .9
-        source = s.product_distro(s.flip(p0+.1), s.product_distro(s.flip(p0+.05), s.flip(p0)))
+    source = s.product_distro(s.flip(p0 + 0*imbalance), s.flip(p0 + 1*imbalance))    
+    if i23:
+        joint = np.array([1, 0, 0, imbalance]) / (1+imbalance)
+        new_source = i23 * joint + (1-i23) * source
+        mi = s.mi(new_source.reshape(2,2))
+        source = new_source
     else:
-        source = s.mi_mix3(i12, i23)
+        mi = 0
+    source = s.product_distro(s.flip(p0+2*imbalance), source)
+
     id_code = np.repeat(np.array([
-        [0, 2, 4],
-        [0, 2, 5],
-        [0, 3, 4],
-        [0, 3, 5],
-        [1, 2, 4],
-        [1, 2, 5],
-        [1, 3, 4],
-        [1, 3, 5],
-    ]), redundancy, -1)
-    permutations = list(itertools.permutations(range(8)))
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ]) + positional*np.array([[0,2,4]]), redundancy, -1)
+    permutations = itertools.permutations(range(2**3))
+    strong_sys = {0, 228, 722, 1032, 2210, 2354, 40319, 40031, 39597, 39287, 38109, 37965}
+    perms_classification = {
+        0: 'id(1) id(2) id(3)',
+        228: 'id(2) id(1) id(3)',
+        722: 'id(1) id(3) id(2)',
+        1032: 'id(2) id(3) id(1)',
+        2210: 'id(3) id(1) id(2)',
+        2354: 'id(3) id(2) id(1)',
+        37965: 'not(3) not(2) not(1)',
+        38109: 'not(3) not(1) not(2)',
+        39278: 'not(2) not(3) not(1)',
+        39597: 'not(1) not(3) not(2)',
+        40031: 'not(2) not(1) not(3)',
+        40319: 'not(1) not(2) not(3)',
+        
+        5167: 'id(1) id(2) not(3)',        
+        11536: 'id(1) not(2) id(3)',
+        
+        1: 'toffoli(1, 2, 3)',
+        121: 'id(1) cnot(2, 3)',
+        5040: 'toffoli(not(1), not(2), 3)',
+        5046: 'id(1) cnot(not(2), 3)',
+    }
     def gen():
-        for permutation in tqdm.tqdm(permutations):
+        for i, permutation in tqdm.tqdm(enumerate(permutations), total=math.factorial(2**3)):
             code = id_code[list(permutation)]
             curves = summarize(source, code, **kwds)
             #curves['permutation'] = tuple(permutation)
             curves['code'] = str(code)
-            curves['systematic'] = systematic_columns(code)
+            curves['systematic'] = classify_code3(code)
+            curves['strong'] = i in strong_sys
+            curves['type'] = perms_classification.get(i, 'holistic')
             curves['ee'] = il.ee(curves)
             curves['ms_auc'] = il.ms_auc(curves)
             yield curves
     return pd.concat(list(gen()))
 
-
 # in the strong systematicity sweep, we're seeing an advantage for systematicity
 # when the input bits are independent. but here, we're seeing no advantage for
 # systematicity. why?
 
-def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, make_plot=False, **kwds):
+def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, positional=True, make_plot=False, **kwds):
     source = s.product_distro(s.flip(p0 + .15), s.flip(p0))
     if i23:
         joint = np.array([1, 0, 0, 2]) / 3
@@ -843,48 +874,48 @@ def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, make_plot=False, **kwds):
     #source = s.mi_mix3(i12, i23)
     
     id_code = np.repeat(np.array([
-        [0, 2, 4],
-        [0, 2, 5],
-        [0, 3, 4],
-        [0, 3, 5],
-        [1, 2, 4],
-        [1, 2, 5],
-        [1, 3, 4],
-        [1, 3, 5],
-    ]), redundancy, -1)
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ]) + positional*np.array([[0, 2, 4]]), redundancy, -1)
 
     fuse12 = np.repeat(np.array([  # CNOT(1,2)
-        [0, 2, 4],
-        [0, 2, 5],
-        [0, 3, 4],
-        [0, 3, 5],
-        [1, 3, 4],
-        [1, 3, 5],
-        [1, 2, 4],
-        [1, 2, 5],        
-    ]), redundancy, -1)
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],        
+    ]) + positional*np.array([[0,2,4]]), redundancy, -1)
 
     fuse23 = np.repeat(np.array([  # CNOT(2,3)
-        [0, 2, 4],
-        [0, 2, 5],
-        [0, 3, 5],
-        [0, 3, 4],
-        [1, 2, 4],
-        [1, 2, 5],
-        [1, 3, 5],
-        [1, 3, 4],        
-    ]), redundancy, -1)
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 1],
+        [0, 1, 0],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 1],
+        [1, 1, 0],        
+    ]) + positional*np.array([[0,2,4]]), redundancy, -1)
 
     fuse23_nonlocal = np.repeat(np.array([
-        [2, 0, 4],
-        [2, 0, 5],
-        [3, 0, 5],
-        [3, 0, 4],
-        [2, 1, 4],
-        [2, 1, 5],
-        [3, 1, 5],
-        [3, 1, 4],                
-    ]), redundancy, -1)
+        [0, 0, 0],
+        [0, 0, 1],
+        [1, 0, 1],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 1, 1],
+        [1, 1, 0],                
+    ]) + positional*np.array([[0,2,4]]), redundancy, -1)
 
     holistic = np.array(shuffled(id_code))
         
