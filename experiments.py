@@ -279,10 +279,10 @@ def strong_combinatoriality_variable(
     }
     signals['strong']['len'] = signals['strong']['form'].map(len)
     signals['strong'].sort_values('len', inplace=True)
-    signals['nonsys'] = pd.DataFrame({
-        'form': shuffled(signals['strong']['form']),
-        'probability': source,
-    })
+    #signals['nonsys'] = pd.DataFrame({
+    #    'form': shuffled(signals['strong']['form']),
+    #    'probability': source,
+    #})
     signals['nonsysl'] = pd.DataFrame({
         'form': shuffle_preserving_length(signals['strong']['form'], granularity=len_granularity),
         'probability': source,
