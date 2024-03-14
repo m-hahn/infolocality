@@ -241,7 +241,7 @@ def strong_combinatoriality_variable(
 
     meanings = list(star_upto(num_morphemes, maxlen))
     unnormalized_source = np.array([
-        morpheme_rate**len(m) * (1 - morpheme_rate) * np.prod(morpheme_source[list(m)])
+        morpheme_rate**len(m) * np.prod(morpheme_source[list(m)])
         for m in meanings
     ])
     source = unnormalized_source / unnormalized_source.sum()
@@ -289,7 +289,7 @@ def strong_combinatoriality_variable(
     })
         
     def gen():
-        for name, signal in signals.items():
+        for name, signal in tqdm.tqdm(signals.items(), total=len(signals), disable=not monitor):
             curves = il.curves_from_sequences(signal['form'], weights=signal['probability'])
             curves['type'] = name
             curves['tc'] = tc
