@@ -244,7 +244,7 @@ def strong_combinatoriality_variable(
         morpheme_rate**len(m) * np.prod(morpheme_source[list(m)])
         for m in meanings
     ])
-    source = unnormalized_source / unnormalized_source.sum()
+    old_source = unnormalized_source / unnormalized_source.sum()
     if coupling:
         if source=='zipf':
             joint_source = s.zipf_mandelbrot(len(meanings), **kwds)
@@ -253,11 +253,12 @@ def strong_combinatoriality_variable(
         else:
             joint_source = s.rem(len(meanings), **kwds)
         
-        new_source = s.couple(source, joint_source, coupling=coupling, coupling_type=coupling_type)
-        tc = new_source @ (np.log(new_source) - np.log(source))
+        new_source = s.couple(old_source, joint_source, coupling=coupling, coupling_type=coupling_type)
+        tc = new_source @ (np.log(new_source) - np.log(old_source))
         source = new_source
     else:
         tc = 0
+        source = old_source
     
     # Strongly systematic mapping from a morpheme to a "word"
     strong_code = c.random_code(num_morphemes, vocab_size, morpheme_length, unique=True)
@@ -298,7 +299,7 @@ def strong_combinatoriality_variable(
     if debug:
         breakpoint()
 
-    return pd.concat(list(gen()))
+    return pd.concat(gen())
 
 def strong_combinatoriality(num_morphemes=4,
                             num_parts=4,
