@@ -228,6 +228,7 @@ def strong_combinatoriality_variable(
         coupling_type='product',
         source='zipf',
         debug=False,
+        monitor=False,
         shuffle=True,
         len_granularity=1,
         **kwds):
@@ -796,17 +797,14 @@ def classify_code3(code):
                 i += 1
     return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
 
-def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, increment=.1, **kwds):
+def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=1, increment=.1, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
-    source = s.product_distro(s.flip(p0), s.flip(p0 + 1*increment))
+    source = s.product_distro(s.flip(p0 + 2*increment), s.flip(p0 + 1*increment))
     if i23:
         joint = np.array([1, 0, 0, imbalance]) / (1+imbalance)
-        new_source = i23 * joint + (1-i23) * source
-        mi = s.mi(new_source.reshape(2,2))
-        source = new_source
-    else:
-        mi = 0
-    source = s.product_distro(s.flip(p0+2*increment), source)
+        source = i23 * joint + (1-i23) * source
+    mi = s.mi(source.reshape(2,2))
+    source = s.product_distro(s.flip(p0), source)
 
     id_code = np.repeat(np.array([
         [0, 0, 0],
@@ -820,7 +818,9 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, incre
     ]) + positional*np.array([[0,2,4]]), redundancy, -1)
     permutations = itertools.permutations(range(2**3))
     strong_sys = {0, 228, 722, 1032, 2210, 2354, 40319, 40031, 39597, 39287, 38109, 37965}
+    
     perms_classification = {
+        # strongly systematic
         0: 'id(1) id(2) id(3)',
         228: 'id(2) id(1) id(3)',
         722: 'id(1) id(3) id(2)',
@@ -833,11 +833,46 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, incre
         39597: 'not(1) not(3) not(2)',
         40031: 'not(2) not(1) not(3)',
         40319: 'not(1) not(2) not(3)',
-        
-        5167: 'id(1) id(2) not(3)',   # these don't matter     
-        11536: 'id(1) not(2) id(3)',
-        
-        1: 'toffoli(1, 2, 3)',
+
+        # weakly systematic
+        5167: 'id(1) id(2) not(3)', # in a fixed-length code these are just as good as strongly-systematic
+        5455: 'id(2) id(1) not(3)',
+        6490: 'id(1) id(3) not(2)',
+        6936: "id(2) id(3) not(1)",
+        7978: "id(3) id(1) not(2)",
+        8258: "id(3) id(2) not(1)",
+        10213: "id(1) not(3) id(2)",
+        10615: "id(2) not(3) id(1)",
+        11536: "id(1) not(2) id(3)",
+        12096: "id(2) not(1) id(3)",
+        13738: "id(3) not(2) id(1)",
+        14018: "id(3) not(1) id(2)",
+        15981: "id(1) not(3) not(2)",
+        16519: "id(2) not(3) not(1)",
+        16703: "id(1) not(2) not(3)",
+        17263: "id(2) not(1) not(3)",
+        19642: "id(3) not(2) not(1)",
+        19786: "id(3) not(1) not(2)",
+        20533: "not(3) id(1) id(2)",
+        20677: "not(3) id(2) id(1)",
+        23056: "not(2) id(1) id(3)",
+        23616: "not(1) id(2) id(3)",
+        23800: "not(2) id(3) id(1)",
+        24338: "not(1) id(3) id(2)",
+        26301: "not(3) id(1) not(2)",
+        26581: "not(3) id(2) not(1)",
+        28223: "not(2) id(1) not(3)",
+        28783: "not(1) id(2) not(3)",
+        29704: "not(2) id(3) not(1)",
+        30106: "not(1) id(3) not(2)",
+        32061: "not(3) not(2) id(1)",
+        32341: "not(3) not(1) id(2)",
+        33383: "not(2) not(3) id(1)",
+        33829: "not(1) not(3) id(2)",
+        34864: "not(2) not(1) id(3)",
+        35152: "not(1) not(2) id(3)",
+            
+        #1: 'toffoli(1, 2, 3)',
         16: 'cnot(1, 2) id(3)',
         121: 'id(1) cnot(2, 3)',
         1565: 'id(1) cnot(3, 2)',
@@ -847,7 +882,7 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, incre
         # cnot(2, 1) id(3)
         # swap(cnot(1, 2)) id(3)
         # swap(cnot(2, 1)) id(3) 
-        5040: 'toffoli(not(1), not(2), 3)',
+        #5040: 'toffoli(not(1), not(2), 3)',
         5046: 'id(1) cnot(not(2), 3)',
     }
 
@@ -857,6 +892,7 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=2, incre
             curves = summarize(source, code, **kwds)
             #curves['permutation'] = tuple(permutation)
             curves['code'] = str(code)
+            curves['sample'] = i
             curves['systematic'] = classify_code3(code)
             curves['strong'] = i in strong_sys
             curves['type'] = perms_classification.get(i, 'holistic')
@@ -973,7 +1009,7 @@ def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, positional=True, make_plot=False, 
 
 
 
-def huffman_systematic_vs_not(first_prob=1/3, **kwds):
+def huffman_systematic_vs_not(first_prob=1/3, with_plot=True, **kwds):
     # Meaning has two components, M_1 x M_2, with zero MI
     # It's just a product of an independent (1/3,2/3) * (1/2,1/4,1/8,1/8)
     # There are multiple legitimate Huffman codes for this source, one systematic and one not.
@@ -1005,7 +1041,8 @@ def huffman_systematic_vs_not(first_prob=1/3, **kwds):
     df2['type'] = 'nonsystematic'
     df = pd.concat([df1, df2])
 
-    plot = (
+    if with_plot:
+        plot = (
         ggplot(df, aes(x='t+1', y='h_t/np.log(2)', color='type'))
         + geom_line(size=1.1) 
         + theme_minimal() 
@@ -1019,8 +1056,10 @@ def huffman_systematic_vs_not(first_prob=1/3, **kwds):
         + geom_text(aes(x=3.5, y=0.981, label='"E=0.019 bits"'), color='black')
         + geom_segment(aes(x=3.1, xend=2.41, y=0.9875, yend=0.983), color='black')
         + geom_segment(aes(x=3.1, xend=1.76, y=0.9815, yend=0.9775), color='black') 
-    )
-    return df, plot
+        )
+        return df, plot
+    else:
+        return df
 
 def huffman_vs_separable(mi=1):
     # Given meanings that can be decomposed into two parts, M_1 x M_2,
@@ -1550,7 +1589,7 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
 # 3. Agreement baselines: why is there agreement? why does it target certain dependencies andd not others? Idea: very low MI -> agreement bad; some MI -> some agreement good
 #    1. Shuffle the agreement forms on adjectives/verbs -- grab a different form of the same lemma deterministically as a function of features. 
 # 4. Word-level probability shuffles. Would this be counterevidence?
-
+# 5. -> Test p(cats) = p(cat)p(s) better than pulling out any other feature.
 
 
 
