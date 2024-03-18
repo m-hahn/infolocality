@@ -798,7 +798,7 @@ def classify_code3(code):
                 i += 1
     return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
 
-def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=1, increment=.1, **kwds):
+def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=1, increment=.05, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
     source = s.product_distro(s.flip(p0 + 2*increment), s.flip(p0 + 1*increment))
     if i23:
@@ -873,7 +873,7 @@ def three_sweep(i23=0, p0=1/2, redundancy=1, positional=True, imbalance=1, incre
         34864: "not(2) not(1) id(3)",
         35152: "not(1) not(2) id(3)",
             
-        #1: 'toffoli(1, 2, 3)',
+        1: 'toffoli(1, 2, 3)',
         16: 'cnot(1, 2) id(3)',
         121: 'id(1) cnot(2, 3)',
         1565: 'id(1) cnot(3, 2)',
