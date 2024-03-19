@@ -798,6 +798,75 @@ def classify_code3(code):
                 i += 1
     return sum(tuple(recode(code[:,i])) in patterns for i in range(code.shape[-1]))
 
+def simplex_grid(k, num_points, edge_distance=0):
+    """ Generate all arrays a of length d such that sum(a) == 1. """
+    assert k > 1
+    assert num_points > 1
+    # To do a fixed distance from edges, do a weighted mean of the initial
+    # grid with the center point, where the weight is however much you need
+    # to get the right distance.
+    middle = 1 / k # center of simplex
+    weight = 1 - edge_distance * k 
+    numbers = np.linspace(0, 1, num_points)
+    numbers = weight * numbers + (1 - weight) * middle
+    for xs in itertools.product(numbers, repeat=k):
+        if np.isclose(sum(xs), 1):
+            yield np.array(xs)
+
+def two_sweep(source: np.array, redundancy=1, positional=True, monitor=False, **kwds):
+    assert source.shape == (4,)
+    mi = s.mi(source.reshape(2,2))
+    id_code = np.repeat(np.array([
+        [0,0],
+        [0,1],
+        [1,0],
+        [1,1],
+    ]) + positional*np.array([[0,2]]), redundancy, -1)
+    permutations = itertools.permutations(range(2**2))
+    classification = {
+        0: "id(1) id(2)",
+        1: "id(1) xor(1,2)",
+        2: "id(2) id(1)",
+        3: "xor(1,2) id(1)",
+        4: "id(2) xor(1,2)",
+        5: "xor(1,2) id(2)",
+        6: "id(1) not(xor(1,2))",
+        7: "id(1) not(id(2))",
+        8: "id(2) not(xor(1,2))",
+        9: "xor(1,2) not(id(2))",
+        10: "id(2) not(id(1))",
+        11: "xor(1,2) not(id(1))",
+        12: "not(xor(1,2)) id(1)",
+        13: "not(id(2)) id(1)",
+        14: "not(xor(1,2)) id(2)",
+        15: "not(id(2)) xor(1,2)",
+        16: "not(id(1)) id(2)",
+        17: "not(id(1)) xor(1,2)",
+        18: "not(xor(1,2)) not(id(2))",
+        19: "not(id(2)) not(xor(1,2))",
+        20: "not(xor(1,2)) not(id(1))",
+        21: "not(id(2)) not(id(1))",
+        22: "not(id(1)) not(xor(1,2))",
+        23: "not(id(1)) not(id(2))",
+    }
+
+    def gen():
+        for i, permutation in tqdm.tqdm(enumerate(permutations), total=math.factorial(2**2), disable=not monitor):
+            code = id_code[list(permutation)]
+            curves = summarize(source, code, **kwds)
+            curves['code'] = str(code)
+            curves['type'] = classification[i]
+            curves['systematic'] = curves['type'].map(lambda t: "xor" not in t)
+            curves['ee'] = il.ee(curves)
+            curves['ms_auc'] = il.ms_auc(curves)
+            yield curves
+            
+    df = pd.concat(gen())
+    df['mi'] = mi
+    df['p00'], df['p01'], df['p10'], df['p11'] = source
+    return df
+
+
 def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=1, increment=.05, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
     source = s.product_distro(s.flip(p0 + 2*increment), s.flip(p0 + 1*increment))
