@@ -1597,11 +1597,13 @@ def dep_word_pairs(num_baseline_samples=1000,
                    with_delimiter='both',
                    keep_order=True,
                    require_adjacent=True,
+                   token_field='form',
                    **kwds):
-    counts = f.raw_word_pair_counts( # English VO dependencies by default
+    counts = f.raw_word_pair_counts( 
         keep_order=keep_order,
         require_adjacent=require_adjacent,
-        **kwds
+        token_field=token_field,
+        **kwds,
     ) 
     return (
         word_level_mi(counts, num_baseline_samples=num_baseline_samples),

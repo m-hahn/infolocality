@@ -138,7 +138,7 @@ def extract_word_pairs(corpus,
                        target_pos=PAIR_POS,
                        corpus_filenames=CORPUS_FILENAMES,
                        field=TOKEN_FIELD,
-                       keep_order=False,
+                       keep_order=True,
                        require_adjacent=False):
     for sentence in corpus:
         for token in sentence:
@@ -221,7 +221,7 @@ def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
                          target_pos=PAIR_POS,
                          relations=RELATIONS,
                          token_field=TOKEN_FIELD,
-                         keep_order=False,
+                         keep_order=True,
                          require_adjacent=False):
     corpus = load_corpus(corpus_filenames)
     pairs = extract_word_pairs(
@@ -253,7 +253,7 @@ def word_feature_mis(corpus_filenames=CORPUS_FILENAMES,
     ))
 
     feats = pd.DataFrame(counts.keys())
-    feats['count'] = counts.values()    
+    feats['count'] = counts.values()
     df = pairwise_mis(feats, names)
     df['within'] = ~((df['i'].map(lambda x: x in target_features)) | (df['j'].map(lambda x: x in target_features)))
     return df
