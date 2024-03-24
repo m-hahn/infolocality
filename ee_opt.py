@@ -1,5 +1,6 @@
 import itertools
 
+import tqdm
 import torch
 import rfutils
 
@@ -82,6 +83,7 @@ def lang_opt(source,
              num_iter=100,
              print_every=10,
              debug=False,
+             monitor=False,
              **kwds):
     if positional:
         strings = list(rfutils.cartesian_distinct_indices(V, k))
@@ -89,16 +91,18 @@ def lang_opt(source,
         strings = list(rfutils.cartesian_indices(V, k))
     if include_eos:
         strings = [s + (EOS,) for s in strings]
-    transforms = [MarkovTransform(strings, t) for t in range(1, k+1+include_eos)]
+    transforms = [MarkovTransform(strings, t) for t in tqdm.tqdm(range(1, k+1+include_eos), disable=not monitor)]
     energy = (init_beta*torch.randn(len(source), len(strings))).clone().requires_grad_(True).to(device)
     opt = torch.optim.AdamW(params=[energy], **kwds)
-    for i in range(num_iter):
+    lnp_g = torch.log(source)[:, None] # shape G1
+    for i in tqdm.tqdm(range(num_iter), disable=not monitor):
         opt.zero_grad()
-        q_gx = torch.softmax(energy, -1) # shape GX
-        q_x = source @ q_gx
-        E = ee(transforms, q_x)
-        H_x_given_g = -torch.xlogy(source[:, None] * q_gx, q_gx).sum()
-        H_x = -torch.xlogy(q_x, q_x).sum()
+        lnq_x_given_g = torch.log_softmax(energy, -1) # shape GX
+        lnq_gx = lnp_g + lnq_x_given_g
+        lnq_x = torch.logsumexp(lnq_gx, -2) # shape X
+        E = ee(transforms, lnq_x.exp())
+        H_x_given_g = -(torch.exp(lnq_gx) * lnq_x_given_g).sum()
+        H_x = -torch.exp(lnq_x) @ lnq_x
         mi = H_x - H_x_given_g # at most H_x. 
         loss = ee_weight*E - mi_weight*mi + nondeterminism_weight*H_x_given_g
         if i % print_every == 0:
@@ -107,7 +111,41 @@ def lang_opt(source,
             breakpoint()
         loss.backward()            
         opt.step()
-    return torch.softmax(energy, -1).detach()
-        
-    
-    
+    return torch.log_softmax(energy, -1).detach()
+
+SHAPES = ['circle', 'triangle', 'square', 'rectangle']
+COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple']
+COLOR_SHAPE_SOURCE = torch.softmax(torch.Tensor([ # propert shape 6x4
+    -1.5040, -2.1875, -3.2165, -2.3789, -8.2091, -7.9948, -9.5170, -8.5365,
+    -2.8550, -2.7071, -4.0052, -3.0344, -2.9795, -3.5183, -4.5010, -3.1453,
+    -2.5130, -3.4727, -4.1353, -3.1229, -4.4349, -4.1126, -6.0600, -5.5061
+]), -1)
+COLOR_SHAPES = [
+    'red circle',
+    'red triangle',
+    'red square',
+    'red rectangle',
+    'orange circle',
+    'orange triangle',
+    'orange square',
+    'orange rectangle',
+    'yellow circle',
+    'yellow triangle',
+    'yellow square',
+    'yellow rectangle',
+    'green circle',
+    'green triangle',
+    'green square',
+    'green rectangle',
+    'blue circle',
+    'blue triangle',
+    'blue square',
+    'blue rectangle',
+    'purple circle',
+    'purple triangle',
+    'purple square',
+    'purple rectangle'
+]
+
+
+# 02 20 
