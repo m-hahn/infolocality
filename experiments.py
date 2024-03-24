@@ -132,8 +132,10 @@ def demonstrate_contiguity_preference(num_meanings=10,
                                       num_meanings_per_word=2,
                                       num_signals=2,
                                       num_signals_per_morpheme=4,
+                                      shuffle=False,
                                       with_delimiter='both',
                                       source='zipf',
+                                      unique=True,
                                       **kwds):
     """ Contiguous codes are preferred over interleaving codes.
     
@@ -147,25 +149,28 @@ def demonstrate_contiguity_preference(num_meanings=10,
         flat_source = s.zipf_mandelbrot(num_meanings**num_meanings_per_word, **kwds)
     elif source == 'rem':
         flat_source = s.rem(num_meanings**num_meanings_per_word, **kwds)
+    if shuffle:
+        np.random.shuffle(flat_source)
     source = s.factor(flat_source, num_meanings, num_meanings_per_word)
 
-    # Code is random, not necessarily one-to-one.
-    code = c.random_code(num_meanings, num_signals, num_signals_per_morpheme)
+    # Code is random, but consistent for the two components.
+    code = c.random_code(num_meanings, num_signals, num_signals_per_morpheme, unique=unique)
 
     # Get signal probabilities.
     signal = c.word_probabilities(source, code, with_delimiter=with_delimiter)
     
     # Go through global permutations
-    print(math.factorial(num_meanings_per_word*num_signals_per_morpheme), file=sys.stderr)
+    perms = itertools.permutations(range(num_meanings_per_word*num_signals_per_morpheme))
     def gen():
-        for perm in tqdm.tqdm(itertools.permutations(range(num_meanings_per_word*num_signals_per_morpheme))):
-            reordered = signal['form'].map(lambda s: sh.reorder_form(s, perm))
-            curves = il.curves_from_sequences(reordered, weights=signal['probability']) # need to exp?
+        for perm in tqdm.tqdm(perms, total=math.factorial(num_meanings_per_word*num_signals_per_morpheme)):
+            reordered = np.array(signal['form'].map(lambda s: sh.reorder_form(s, perm)))
+            curves = il.curves_from_sequences(reordered, weights=signal['probability']) 
             ms = il.ms_auc(curves)
             ee = il.ee(curves)
-            contiguous = c.is_contiguous(num_meanings_per_word, num_signals_per_morpheme, perm)
+            contiguous, consistent = c.is_contiguous(num_meanings_per_word, num_signals_per_morpheme, perm)
             yield {
                 'is_contiguous': contiguous,
+                'is_consistent': consistent,
                 'ms': ms,
                 'ee': ee,
                 'perm': perm,
