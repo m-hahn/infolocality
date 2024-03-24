@@ -23,23 +23,15 @@ def segments(iterable, breakpoints):
             for where to break the iterable.
 
     Yields:
-        Iterators over items from iterable.
-
-    Example:
-        >>> lst = ['foo', 'bar', 'baz', 'qux', 'zim', 'cat', 'dog']
-        >>> list(map(list, segments(lst, (3,4))))
-        [['foo', 'bar', 'baz'], ['qux'], ['zim', 'cat', 'dog']]
-
+        Sequences of items from iterable.
     """
-    xs = iter(iterable)
-    previous_breakpoint = 0
+    iterable = list(iterable)
+    breakpoints = sorted(set(breakpoints))
+    start = 0
     for breakpoint in breakpoints:
-        subit = itertools.islice(xs, breakpoint - previous_breakpoint)
-        yield subit
-        for x in subit:
-            pass
-        previous_breakpoint = breakpoint
-    yield xs
+        yield iterable[start:breakpoint]
+        start = breakpoint
+    yield iterable[start:]
 
 def ljust(xs, length, value):
     xs = list(xs)
@@ -78,16 +70,38 @@ def rand_str(V, k):
     ints = [random.choice(range(V)) for _ in range(k)]
     return ints_to_str(ints)
 
+def all_same(xs):
+    x, *rest = xs
+    return all(r == x for r in rest)
+
 def is_contiguous(k, l, perm):
-    """ Return whether permutation perm when applied to a string with k components of length l preserves contiguity """
+    """ Return whether permutation perm when applied to a string with k components of length l
+    preserves contiguity and whether it preserves the order of elements within each component consistently """
     canonical_order = range(k*l)
-    breaks = [l*k_ for k_ in range(k)]
+    breaks = [l*k_ for k_ in range(1,k)]
     words = segments(canonical_order, breaks)
     index_sets = {frozenset(word) for word in words}
-    return all(
+    contiguous = all(
         frozenset(perm_segment) in index_sets
         for perm_segment in segments(perm, breaks)
     )
+    invariant_words = [
+        tuple(i-min(i for i in word) for i in word)
+        for k, word in enumerate(segments(perm, breaks))
+    ]
+    consistent = all_same(invariant_words)
+    return contiguous, consistent
+
+def test_is_contiguous():
+    assert all(is_contiguous(2, 2, (0,1,2,3)))
+    assert is_contiguous(2, 2, (1,0,2,3))[0]
+    assert not is_contiguous(2, 2, (1,0,2,3))[1]
+    assert all(is_contiguous(2, 3, (2,1,0,5,4,3)))
+    assert is_contiguous(2, 3, (2,1,0,5,3,4))[0]
+    assert not is_contiguous(2, 3, (2,1,0,5,3,4))[1]
+    assert all(is_contiguous(3, 3, (2,1,0,5,4,3,8,7,6)))
+    assert all(is_contiguous(2, 2, (3,2,1,0)))
+    assert all(is_contiguous(2, 4, (7, 6, 5, 4, 3, 2, 1, 0)))
 
 def encode_contiguous_positional_random_order(ms, code):
     """ Use code to encode each element of ms in a random order. """
@@ -258,3 +272,6 @@ def repeating_blocks(V, k, m, overlapping=True):
             yield DELIMITER + "".join(flat(ints_to_str(x) for x in parts)) + DELIMITER
     return pd.DataFrame({'form': list(gen())})
 
+if __name__ == '__main__':
+    import nose
+    nose.runmodule()
