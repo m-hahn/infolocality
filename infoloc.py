@@ -1,3 +1,4 @@
+import sys
 import itertools
 import operator
 from math import log, exp
@@ -8,6 +9,7 @@ import tqdm
 import numpy as np
 import pandas as pd
 import scipy.special
+import scipy.stats
 
 DELIMITER = '#'
 EPSILON = 10 ** -5
@@ -94,15 +96,19 @@ def lattice_curves_from_sequences(xs, labels, weights=None, **kwds):
     hG.columns = ['t', 'h_t_g']
     return pd.merge(h, hG)
 
-def curves_from_counts(counts, context, *labels):
+def curves_from_counts(counts, context, *labels, monitor=False):
     """ 
     Input: counts, a dataframe with columns 'x_{<t}' and 'count',
     where 'x_{<t}' gives a context, and count gives a weight or count
     for an item in that context.
     """ 
     t = context.map(len)
+    if monitor:
+        print("Normalizing probabilities...", file=sys.stderr, end=" ")
     the_joint_logp = conditional_logp(counts, t, *labels)
     the_conditional_logp = conditional_logp(counts, context, *labels)
+    if monitor:
+        print("Done.")
     return curves(t, the_joint_logp, the_conditional_logp, *labels) # TODO how to labels fit in here?
 
 def counts_from_sequences(xs: Iterable[Sequence],
@@ -121,7 +127,9 @@ def counts_from_sequences(xs: Iterable[Sequence],
         weights = itertools.repeat(1)
     if labels is None:
         labels = {}
-        
+
+    if monitor:
+        print("Aggregating n-gram statistics...", file=sys.stderr)
     counts = Counter()
     for x, w, *l in zip(tqdm.tqdm(xs, disable=not monitor), weights, *labels.values()):
         # x is a string/sequence.
@@ -214,7 +222,8 @@ def unconditional_curves(t, joint_logp, conditional_logp):
     plogp = np.exp(joint_logp) * conditional_logp
     h_t = -plogp.groupby([t]).sum()
     assert is_monotonically_decreasing(h_t)
-    I_t = -h_t.diff()
+    I_t = -h_t.diff()    
+    h = h_t.min()
     H_M_lower_bound = np.cumsum(I_t * I_t.index)
     H_M_lower_bound[0] = 0
     df = pd.DataFrame({
@@ -227,6 +236,12 @@ def unconditional_curves(t, joint_logp, conditional_logp):
 
 def ee(curves):
     return curves['H_M_lower_bound'].max()
+
+def transient_information(curves):
+    """ Transient information from Crutchfield & Feldman (2003: §4C) """
+    h = curves['h_t'].min()
+    L = curves['t'] + 1
+    return np.sum(L * (curves['h_t'] - h))
 
 def ms_auc(curves):
     """
@@ -257,9 +272,50 @@ def test_rjust():
     assert rjust("auc", 1, "#") == "auc"
     assert rjust(tuple("auc"), 10, '#') == tuple("#######auc")
 
+def test_ee():
+    assert np.abs(
+        ee(curves_from_sequences(["ac#", "bd#"])) - (np.log(3) + (1/3)*np.log(2))
+    ) < EPSILON
+    for i in range(10):
+        # Compare against analytical formula E_2 = \ln 3 + 1/3 I_{12}.
+        p = scipy.special.softmax(i*np.random.randn(2,2))
+        p_x = p.sum(0)
+        p_y = p.sum(1)
+        mi = scipy.stats.entropy(p_x) + scipy.stats.entropy(p_y) - scipy.stats.entropy(p, axis=None)
+        the_ee = ee(curves_from_sequences(["ac#", "ad#", "bc#", "bd#"], p.flatten()))
+        assert np.abs(the_ee - (np.log(3) + 1/3*mi)) < EPSILON
+        
+    assert np.abs(
+        ee(curves_from_sequences(["ace#", "adf#", "bce#", "bdf#"])) - (np.log(4) + (1/4)*np.log(2))
+    ) < EPSILON
+    assert np.abs(
+        ee(curves_from_sequences(["ace#", "ade#", "bcf#", "bdf#"])) - (np.log(4) + (1/4)*2*np.log(2))
+    ) < EPSILON
+
+    sequences = ["ace#", "acf#", "ade#", "adf#", "bce#", "bcf#", "bde#", "bdf#"]
+    for i in range(10):
+        # Compare against analytical formula E_3 = \ln 4 + 1/4 (TC_{123} - I_{123} + I_{13}).
+        p = scipy.special.softmax(i*np.random.randn(2,2,2))
+        p1 = p.sum(axis=(1,2))
+        p2 = p.sum(axis=(0,2))        
+        p3 = p.sum(axis=(0,1))
+        p12 = p.sum(axis=2)
+        p23 = p.sum(axis=0)        
+        p13 = p.sum(axis=1)
+        i13 = scipy.stats.entropy(p1) + scipy.stats.entropy(p3) - scipy.stats.entropy(p13, axis=None)
+        tc = scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3) - scipy.stats.entropy(p, axis=None)
+        i123 = (
+            scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3)
+            - scipy.stats.entropy(p12, axis=None) - scipy.stats.entropy(p23, axis=None) - scipy.stats.entropy(p13, axis=None)
+            + scipy.stats.entropy(p, axis=None)
+        )
+        the_ee = ee(curves_from_sequences(sequences, p.flatten()))
+        formula = np.log(4) + 1/4*(tc - i123 + i13)
+        assert np.abs(the_ee - formula) < EPSILON
+
 def padded_subcontexts(context, maxlen):
     yield ""
-    for length in range(1, maxlen): # need a +1?
+    for length in range(1, maxlen):
         try:
             yield context[-length:].rjust(length, DELIMITER)
         except AttributeError:
@@ -286,4 +342,5 @@ if __name__ == '__main__':
     import nose
     nose.runmodule()
  
+
 
