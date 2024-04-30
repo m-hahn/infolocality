@@ -102,9 +102,9 @@ def curves_from_counts(counts, monitor=False):
 
 def conditional_logp(counts, *contexts):
     contexts = list(contexts)
-    Z_context = counts.groupby(contexts).sum().reset_index().rename(columns={'count': 'Z'})
-    counts = counts.join(Z_context.set_index(contexts), on=contexts) # preserve order
-    return np.log(counts['count']) - np.log(counts['Z'])
+    Z_context = counts.groupby(contexts).sum().rename(columns={'count': 'Z'})
+    Z = counts.join(Z_context, on=contexts)
+    return np.log(counts['count']) - np.log(Z['Z'])
 
 def curves(t, joint_logp, conditional_logp):
     """ 
@@ -121,7 +121,7 @@ def curves(t, joint_logp, conditional_logp):
     h_t = -plogp.groupby([t]).sum()
     var_h_t = ((p * conditional_logp**2) - (p * conditional_logp)**2).groupby([t]).sum()
     assert is_monotonically_decreasing(h_t)
-    I_t = -h_t.diff()    
+    I_t = -h_t.diff()
     H_M_lower_bound = np.cumsum(I_t * I_t.index)
     H_M_lower_bound[0] = 0
     df = pd.DataFrame({
@@ -132,31 +132,6 @@ def curves(t, joint_logp, conditional_logp):
         'H_M_lower_bound': np.array(H_M_lower_bound),
     })
     return df
-
-def increments(xs):
-    for *context, x in buildup(xs):
-        yield tuple(context), x
-
-def incremental_logp(x, logp):
-    """ Only for all sequences of the same length! x must be a string! """
-    def gen():
-        for form, logp_form in zip(x, logp):
-            logT = log(len(form))
-            for context, x_t in increments(form):
-                yield context, x_t, logp_form
-
-    full = pd.DataFrame(data=gen())
-    full.columns = ['x_{<t}', 'x_t', 'joint_logp']
-    
-    marg = full.groupby(['x_{<t}', 'x_t']).aggregate(scipy.special.logsumexp).reset_index()
-    t = full['x_{<t}'].map(len)
-    context = marg[['x_{<t}', 'joint_logp']].groupby(['x_{<t}']).aggregate(scipy.special.logsumexp).reset_index()
-    context.columns = ['x_{<t}', 'context_logp']
-    
-    d = pd.merge(marg, context)
-    d['conditional_logp'] = d['joint_logp'] - d['context_logp']
-    return d
-
 
 def ee(curves):
     return curves['H_M_lower_bound'].max()
