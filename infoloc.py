@@ -14,25 +14,16 @@ import scipy.stats
 DELIMITER = '#'
 EPSILON = 10 ** -5
 
-def buildup(iterable):
-    """ Build up
-
+def sliding_from_left(xs: Sequence):
+    """ Sliding from left
+    
     Example:
-    >>> list(buildup("abcd"))
-    [('a',), ('a', 'b'), ('a', 'b', 'c'), ('a', 'b', 'c', 'd')]
-
-    """
-    so_far = []
-    for x in iterable:
-        so_far.append(x)
-        yield tuple(so_far)
-
-def sliding_from_left(xs: Sequence, k: int):
-    """
-    Example: sliding_from_left("abcd", 3) -> ["a", "ab", "abc", "bcd"]
+    >>> list(sliding_from_left("abcd")
+    ["a", "ab", "abc", "abcd"]
+    
     """
     for i in range(len(xs)):
-        yield xs[max(i-k+1, 0) : i+1]
+        yield xs[:i+1]
     
 def pairs(xs):
     return zip(xs, xs[1:])
@@ -45,9 +36,6 @@ def is_monotonic(comparator, sequence, epsilon=EPSILON):
 
 def is_monotonically_decreasing(sequence, epsilon=EPSILON):
     return is_monotonic(operator.ge, sequence, epsilon=epsilon)
-
-def is_nonnegative(x, epsilon=EPSILON):
-    return x + epsilon >= 0
 
 def curves_from_sequences(xs: Iterable[Sequence],
                           weights=None,
@@ -76,7 +64,8 @@ def counts_from_sequences(xs: Iterable[Sequence],
     for x, w in zip(tqdm.tqdm(xs, disable=not monitor), weights):
         # x is a string/sequence.
         # w is a weight / probability / count.
-        for context, x_t in thing_in_context(x):
+        for chunk in sliding_from_left(x):
+            context, x_t = chunk[:-1], chunk[-1]
             for subcontext in padded_subcontexts(context, maxlen):
                 counts[subcontext, x_t] += w
 
@@ -215,30 +204,15 @@ def test_ee():
         assert np.abs(the_ee - formula) < EPSILON
 
 def padded_subcontexts(context, maxlen):
-    yield ""
-    for length in range(1, maxlen):
-        try:
+    if isinstance(context, str):
+        yield ""
+        for length in range(1, maxlen):
             yield context[-length:].rjust(length, DELIMITER)
-        except AttributeError:
+    else:
+        yield ()
+        for length in range(1, maxlen):
             yield rjust(context[-length:], length, DELIMITER)
 
-def restorer(xs):
-    if isinstance(xs, str):
-        return "".join
-    else:
-        return tuple            
-            
-def thing_in_context(xs: Sequence[Any]):
-    restore = restorer(xs)
-    if xs[0] is DELIMITER:
-        context = [DELIMITER]
-        xs = xs[1:]
-    else:
-        context = []
-    for x in xs:
-        yield restore(context), x
-        context.append(x)
-   
 if __name__ == '__main__':
     import nose
     nose.runmodule()
