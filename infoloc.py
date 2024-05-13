@@ -1,7 +1,5 @@
 import sys
 import itertools
-import operator
-from math import log, exp
 from collections import Counter
 from typing import *
 
@@ -14,16 +12,9 @@ import scipy.stats
 DELIMITER = '#'
 EPSILON = 10 ** -5
 
-def sliding_from_left(xs: Sequence):
-    """ Sliding from left
-    
-    Example:
-    >>> list(sliding_from_left("abcd")
-    ["a", "ab", "abc", "abcd"]
-    
-    """
+def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
     for i in range(len(xs)):
-        yield xs[:i+1]
+        yield xs[max(0, i-k+1):i+1]
 
 def curves_from_sequences(xs: Iterable[Sequence],
                           weights=None,
@@ -52,13 +43,11 @@ def counts_from_sequences(xs: Iterable[Sequence],
     for x, w in zip(tqdm.tqdm(xs, disable=not monitor), weights):
         # x is a string/sequence.
         # w is a weight / probability / count.
-        for chunk in sliding_from_left(x):
-            context, x_t = chunk[:-1], chunk[-1]
-            for subcontext in padded_subcontexts(context, maxlen):
-                counts[subcontext, x_t] += w
-
+        for k in range(maxlen): # window size
+            for chunk in sliding_from_left(x, k+1): 
+                counts[k, chunk[:-1], chunk[-1]] += w
     df = pd.DataFrame(counts.keys())
-    df.columns = ['x_{<t}', 'x_t']
+    df.columns = ['t', 'x_{<t}', 'x_t']
     df['count'] = counts.values()
     return df
 
@@ -70,7 +59,7 @@ def curves_from_counts(counts, monitor=False):
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
-    counts['t'] = counts['x_{<t}'].map(len)
+    #counts['t'] = counts['x_{<t}'].map(len)
     the_joint_logp = conditional_logp(counts, 't')
     the_conditional_logp = conditional_logp(counts, 't', 'x_{<t}')
     if monitor:
@@ -81,7 +70,7 @@ def conditional_logp(counts, *contexts):
     contexts = list(contexts)
     Z_context = counts.groupby(contexts).sum().rename(columns={'count': 'Z'})
     Z = counts.join(Z_context, on=contexts)
-    return np.log(counts['count']) - np.log(Z['Z'])
+    return np.log(Z['count']) - np.log(Z['Z'])
 
 def curves(t, joint_logp, conditional_logp):
     """ 
@@ -132,21 +121,6 @@ def score(J, forms, weights=None, maxlen=None):
     curves = curves_from_sequences(forms, weights=weights, maxlen=maxlen)
     return J(curves)
 
-def rjust(xs, length, value):
-    """ rjust for general iterables, not just strings """
-    num_needed = length - len(xs)
-    if num_needed <= 0:
-        return xs
-    else:
-        r = [value] * num_needed
-        r.extend(xs)
-        return type(xs)(r)
-
-def test_rjust():
-    assert rjust(list("auc"), 10, "#") == list("#######auc")
-    assert rjust(list("auc"), 1, "#") == list("auc")
-    assert rjust(tuple("auc"), 10, '#') == tuple("#######auc")
-
 def test_ee():
     assert np.abs(
         ee(curves_from_sequences(["ac#", "bd#"])) - (np.log(3) + (1/3)*np.log(2))
@@ -191,15 +165,6 @@ def test_ee():
         formula = np.log(4) + 1/4*(tc - i123 + i13)
         assert np.abs(the_ee - formula) < EPSILON
 
-def padded_subcontexts(context, maxlen):
-    if isinstance(context, str):
-        yield ""
-        for length in range(1, maxlen):
-            yield context[-length:].rjust(length, DELIMITER)
-    else:
-        yield ()
-        for length in range(1, maxlen):
-            yield rjust(context[-length:], length, DELIMITER)
 
 if __name__ == '__main__':
     import nose
