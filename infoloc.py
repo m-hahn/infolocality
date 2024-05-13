@@ -24,18 +24,6 @@ def sliding_from_left(xs: Sequence):
     """
     for i in range(len(xs)):
         yield xs[:i+1]
-    
-def pairs(xs):
-    return zip(xs, xs[1:])
-
-def is_monotonic(comparator, sequence, epsilon=EPSILON):
-    def conditions():
-        for x1, x2 in pairs(sequence):
-            yield comparator(x1, x2) or comparator(x1, x2+epsilon) or comparator(x1, x2-epsilon)
-    return all(conditions())
-
-def is_monotonically_decreasing(sequence, epsilon=EPSILON):
-    return is_monotonic(operator.ge, sequence, epsilon=epsilon)
 
 def curves_from_sequences(xs: Iterable[Sequence],
                           weights=None,
@@ -109,8 +97,8 @@ def curves(t, joint_logp, conditional_logp):
     plogp = p * conditional_logp
     h_t = -plogp.groupby([t]).sum()
     var_h_t = ((p * conditional_logp**2) - (p * conditional_logp)**2).groupby([t]).sum()
-    assert is_monotonically_decreasing(h_t)
     I_t = -h_t.diff()
+    assert (I_t[1:] > -EPSILON).all()
     H_M_lower_bound = np.cumsum(I_t * I_t.index)
     H_M_lower_bound[0] = 0
     df = pd.DataFrame({
