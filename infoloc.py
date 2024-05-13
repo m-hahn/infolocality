@@ -13,6 +13,14 @@ DELIMITER = '#'
 EPSILON = 10 ** -5
 
 def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
+    """
+    Sliding windows from the left of maximum size k.
+    
+    Example:
+    >>> list(sliding_from_left("abcde", 3))
+    ["a", "ab", "abc", "bcd", "cde"]
+    
+    """
     for i in range(len(xs)):
         yield xs[max(0, i-k+1):i+1]
 
@@ -41,11 +49,11 @@ def counts_from_sequences(xs: Iterable[Sequence],
         print("Aggregating n-gram statistics...", file=sys.stderr)
     counts = Counter()
     for x, w in zip(tqdm.tqdm(xs, disable=not monitor), weights):
-        # x is a string/sequence.
+        # x is a string / sequence.
         # w is a weight / probability / count.
-        for k in range(maxlen): # window size
-            for chunk in sliding_from_left(x, k+1): 
-                counts[k, chunk[:-1], chunk[-1]] += w
+        for t in range(maxlen): # window size
+            for chunk in sliding_from_left(x, t+1): 
+                counts[t, chunk[:-1], chunk[-1]] += w
     df = pd.DataFrame(counts.keys())
     df.columns = ['t', 'x_{<t}', 'x_t']
     df['count'] = counts.values()
@@ -59,7 +67,6 @@ def curves_from_counts(counts, monitor=False):
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
-    #counts['t'] = counts['x_{<t}'].map(len)
     the_joint_logp = conditional_logp(counts, 't')
     the_conditional_logp = conditional_logp(counts, 't', 'x_{<t}')
     if monitor:
