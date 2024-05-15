@@ -1,4 +1,5 @@
 import sys
+import random
 import itertools
 from collections import Counter
 from typing import *
@@ -65,17 +66,24 @@ def curves_from_counts(df, monitor=False):
     Input: a dataframe with columns 't', 'x_{<t}' 'x_t', and 'count',
     where 'x_{<t}' gives a context, and 'count' gives a weight or count
     for an item in that context.
+
+    Assumes that there are an equal number of observations of all
+    different context lengths, and that context length t=0 is represented.
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
+
     Z_t = df[df['t']==0]['count'].sum()
     joint_logp = np.log(df['count']) - np.log(Z_t)
+    
     contexts = ['t', 'x_{<t}']
     Z_context = df.groupby(contexts)['count'].sum().rename('Z')
-    Z = df.join(Z_context, on=contexts)
-    conditional_logp = np.log(Z['count']) - np.log(Z['Z'])
+    counts = df.join(Z_context, on=contexts)
+    conditional_logp = np.log(counts['count']) - np.log(counts['Z'])
+    
     if monitor:
         print("Done.", file=sys.stderr)
+        
     return curves(df['t'], joint_logp, conditional_logp)
 
 def curves(t, joint_logp, conditional_logp):
@@ -125,6 +133,28 @@ def ms_auc(curves):
 def score(J, forms, weights=None, maxlen=None):
     curves = curves_from_sequences(forms, weights=weights, maxlen=maxlen)
     return J(curves)
+
+def test_curve_properties():
+    def gen_string(T=10, V=5):
+        length = random.choice(range(T))
+        stuff = [random.choice(range(V)) for _ in range(length)] + ['#']
+        return tuple(stuff)
+    data = [gen_string() for _ in range(1000)]
+    def reverse(xs):
+        return xs[:-1][::-1] + ('#',)
+    one = curves_from_sequences(data)
+    two = curves_from_sequences(data)
+    assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
+    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()    
+    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()
+
+    # X_4 = X_1 + X_2 + X_3 (mod 2)
+    one = curves_from_sequences(['aaa0', 'aab1', 'aba1', 'abb0', 'baa1', 'bab0', 'bba0', 'bbb1'])
+    # X_4 = X_1
+    two = curves_from_sequences(['aaa0', 'aab0', 'aba0', 'abb0', 'baa1', 'bab1', 'bba1', 'bbb1'])
+    assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
+    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()        
+    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()    
 
 def test_ee():
     """ Test excess entropy calculation against analytical formulas. """
