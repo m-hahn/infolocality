@@ -68,17 +68,15 @@ def curves_from_counts(df, monitor=False):
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
-    the_joint_logp = conditional_logp(df, 't')
-    the_conditional_logp = conditional_logp(df, 't', 'x_{<t}')
+    Z_t = df[df['t']==0]['count'].sum()
+    joint_logp = np.log(df['count']) - np.log(Z_t)
+    contexts = ['t', 'x_{<t}']
+    Z_context = df.groupby(contexts)['count'].sum().rename('Z')
+    Z = df.join(Z_context, on=contexts)
+    conditional_logp = np.log(Z['count']) - np.log(Z['Z'])
     if monitor:
         print("Done.", file=sys.stderr)
-    return curves(df['t'], the_joint_logp, the_conditional_logp)
-
-def conditional_logp(counts, *contexts):
-    contexts = list(contexts)
-    Z_context = counts.groupby(contexts).sum().rename(columns={'count': 'Z'})['Z']
-    Z = counts.join(Z_context, on=contexts)
-    return np.log(Z['count']) - np.log(Z['Z'])
+    return curves(df['t'], joint_logp, conditional_logp)
 
 def curves(t, joint_logp, conditional_logp):
     """ 
