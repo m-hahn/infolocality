@@ -33,10 +33,11 @@ def curves_from_sequences(xs: Iterable[Sequence],
 
 def counts_from_sequences(xs: Iterable[Sequence],
                           weights: Optional[Iterable],
-                          maxlen=None,
+                          maxlen: Optional[int]=None,
                           monitor=False):
-    """ Return a dataframe with column x_{<t}, x_t, and count,
-    where count is the weighted number of observations for the given x_{<t} followed by x_t.
+    """ Return a dataframe with columns t, x_{<t}, x_t, and count,
+    where count is the weighted number of observations for the given
+    x_{<t} followed by x_t in position t.
     """
     if maxlen is None:
         if not isinstance(xs, Sequence):
@@ -59,23 +60,23 @@ def counts_from_sequences(xs: Iterable[Sequence],
     df['count'] = counts.values()
     return df
 
-def curves_from_counts(counts, monitor=False):
+def curves_from_counts(df, monitor=False):
     """ 
-    Input: counts, a dataframe with columns 'x_{<t}' and 'count',
+    Input: a dataframe with columns 't', 'x_{<t}' 'x_t', and 'count',
     where 'x_{<t}' gives a context, and 'count' gives a weight or count
     for an item in that context.
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
-    the_joint_logp = conditional_logp(counts, 't')
-    the_conditional_logp = conditional_logp(counts, 't', 'x_{<t}')
+    the_joint_logp = conditional_logp(df, 't')
+    the_conditional_logp = conditional_logp(df, 't', 'x_{<t}')
     if monitor:
         print("Done.", file=sys.stderr)
-    return curves(counts['t'], the_joint_logp, the_conditional_logp)
+    return curves(df['t'], the_joint_logp, the_conditional_logp)
 
 def conditional_logp(counts, *contexts):
     contexts = list(contexts)
-    Z_context = counts.groupby(contexts).sum().rename(columns={'count': 'Z'})
+    Z_context = counts.groupby(contexts).sum().rename(columns={'count': 'Z'})['Z']
     Z = counts.join(Z_context, on=contexts)
     return np.log(Z['count']) - np.log(Z['Z'])
 
@@ -90,8 +91,7 @@ def curves(t, joint_logp, conditional_logp):
     A dataframe of dimension max(t)+1, with columns t, h_t, I_t, and H_M_lower_bound.
     """
     p = np.exp(joint_logp)
-    plogp = p * conditional_logp
-    h_t = -plogp.groupby([t]).sum()
+    h_t = -(p * conditional_logp).groupby([t]).sum()
     var_h_t = ((p * conditional_logp**2) - (p * conditional_logp)**2).groupby([t]).sum()
     I_t = -h_t.diff()
     assert (I_t[1:] > -EPSILON).all()
@@ -129,17 +129,16 @@ def score(J, forms, weights=None, maxlen=None):
     return J(curves)
 
 def test_ee():
+    """ Test excess entropy calculation against analytical formulas. """
     assert np.abs(
         ee(curves_from_sequences(["ac#", "bd#"])) - (np.log(3) + (1/3)*np.log(2))
     ) < EPSILON
     for i in range(10):
         # Compare against analytical formula E_2 = \log 3 + 1/3 I_{12}.
         p = scipy.special.softmax(i*np.random.randn(2,2))
-        p_x = p.sum(0)
-        p_y = p.sum(1)
-        mi = scipy.stats.entropy(p_x) + scipy.stats.entropy(p_y) - scipy.stats.entropy(p, axis=None)
+        formula = E2(p)
         the_ee = ee(curves_from_sequences(["ac#", "ad#", "bc#", "bd#"], p.flatten()))
-        assert np.abs(the_ee - (np.log(3) + 1/3*mi)) < EPSILON
+        assert np.abs(the_ee - formula) < EPSILON
         
     assert np.abs(
         ee(curves_from_sequences(["ace#", "adf#", "bce#", "bdf#"])) - (np.log(4) + (1/4)*np.log(2))
@@ -155,23 +154,34 @@ def test_ee():
     for i in range(10):
         # Compare against analytical formula E_3 = \log 4 + 1/4 (TC_{123} - I_{123} + I_{13}).
         p = scipy.special.softmax(i*np.random.randn(2,2,2))
-        p1 = p.sum(axis=(1,2))
-        p2 = p.sum(axis=(0,2))        
-        p3 = p.sum(axis=(0,1))
-        p12 = p.sum(axis=2)
-        p23 = p.sum(axis=0)        
-        p13 = p.sum(axis=1)
-        i13 = scipy.stats.entropy(p1) + scipy.stats.entropy(p3) - scipy.stats.entropy(p13, axis=None)
-        tc = scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3) - scipy.stats.entropy(p, axis=None)
-        i123 = (
-            scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3)
-            - scipy.stats.entropy(p12, axis=None) - scipy.stats.entropy(p23, axis=None) - scipy.stats.entropy(p13, axis=None)
-            + scipy.stats.entropy(p, axis=None)
-        )
-        the_ee = ee(curves_from_sequences(sequences, p.flatten()))
-        formula = np.log(4) + 1/4*(tc - i123 + i13)
+        formula = E3(p)
+        the_ee = ee(curves_from_sequences(sequences, p.flatten()))        
         assert np.abs(the_ee - formula) < EPSILON
 
+def E2(p):
+    """ Excess entropy for delimited strings of fixed length 2 """
+    p_x = p.sum(0)
+    p_y = p.sum(1)
+    mi = scipy.stats.entropy(p_x) + scipy.stats.entropy(p_y) - scipy.stats.entropy(p, axis=None)
+    return np.log(3) + 1/3*mi
+
+def E3(p):
+    """ Excess entropy for delimited strings of fixed length 3 """
+    p1 = p.sum(axis=(1,2))
+    p2 = p.sum(axis=(0,2))        
+    p3 = p.sum(axis=(0,1))
+    p12 = p.sum(axis=2)
+    p23 = p.sum(axis=0)        
+    p13 = p.sum(axis=1)
+    i13 = scipy.stats.entropy(p1) + scipy.stats.entropy(p3) - scipy.stats.entropy(p13, axis=None)
+    tc = scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3) - scipy.stats.entropy(p, axis=None)
+    i123 = (
+        scipy.stats.entropy(p1) + scipy.stats.entropy(p2) + scipy.stats.entropy(p3)
+        - scipy.stats.entropy(p12, axis=None) - scipy.stats.entropy(p23, axis=None) - scipy.stats.entropy(p13, axis=None)
+        + scipy.stats.entropy(p, axis=None)
+    )
+    formula = np.log(4) + 1/4*(tc - i123 + i13)
+    return formula
 
 if __name__ == '__main__':
     import nose
