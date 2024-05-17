@@ -23,7 +23,7 @@ def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
     
     """
     for i in range(len(xs)):
-        yield xs[max(0, i-k+1):i+1]
+        yield xs[:i+1][-k:]
 
 def curves_from_sequences(xs: Iterable[Sequence],
                           weights=None,
@@ -66,20 +66,18 @@ def curves_from_counts(df, monitor=False):
     Input: a dataframe with columns 't', 'x_{<t}' 'x_t', and 'count',
     where 'x_{<t}' gives a context, and 'count' gives a weight or count
     for an item in that context.
-
-    Assumes that there are an equal number of observations of all
-    different context lengths, and that context length t=0 is represented.
     """
     if monitor:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
 
-    Z_t = df[df['t']==0]['count'].sum()
-    joint_logp = np.log(df['count']) - np.log(Z_t)
+    log_count = np.log(df['count'])
+
+    Z_t = df.groupby('t')['count'].sum()
+    assert (Z_t[0] == Z_t).all()
+    joint_logp = log_count - np.log(Z_t[0])
     
-    contexts = ['t', 'x_{<t}']
-    Z_context = df.groupby(contexts)['count'].sum().rename('Z')
-    counts = df.join(Z_context, on=contexts)
-    conditional_logp = np.log(counts['count']) - np.log(counts['Z'])
+    Z_context = df.groupby(['t', 'x_{<t}'])['count'].transform('sum')
+    conditional_logp = log_count - np.log(Z_context)
     
     if monitor:
         print("Done.", file=sys.stderr)
@@ -143,7 +141,7 @@ def test_curve_properties():
     def reverse(xs):
         return xs[:-1][::-1] + ('#',)
     one = curves_from_sequences(data)
-    two = curves_from_sequences(data)
+    two = curves_from_sequences(map(reverse, data))
     assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
     assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()    
     assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()
@@ -153,8 +151,17 @@ def test_curve_properties():
     # X_4 = X_1
     two = curves_from_sequences(['aaa0', 'aab0', 'aba0', 'abb0', 'baa1', 'bab1', 'bba1', 'bbb1'])
     assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
-    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()        
-    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()    
+    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()
+    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()
+
+    def mark_position(seq):
+        return tuple(1000*x + y for x, y in enumerate(seq[:-1])) + ('#',)
+
+    fixed_length_data = [tuple(random.choice(range(5)) for _ in range(10)) + ('#',) for _ in range(1000)]
+    one = curves_from_sequences(fixed_length_data)
+    two = curves_from_sequences(map(mark_position, fixed_length_data))
+    assert np.abs(one['h_t'].min() - two['h_t'].min()) < EPSILON
+    assert np.abs(one['H_M_lower_bound'].max() - two['H_M_lower_bound'].max()) < EPSILON
 
 def test_ee():
     """ Test excess entropy calculation against analytical formulas. """
