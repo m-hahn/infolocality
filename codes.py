@@ -6,7 +6,6 @@ import numpy as np
 import scipy.special
 import pandas as pd
 
-import infoloc as il
 import huffman
 
 DELIMITER = '#'
@@ -61,6 +60,8 @@ def huffman_lexicon(forms, weights, n, with_delimiter=True):
     codebook = huffman.huffman(weights, n=n)
     if with_delimiter == 'left':
         return [DELIMITER + ints_to_str(code) for code in codebook]
+    elif with_delimiter == 'right':
+        return [ints_to_str(code) + DELIMITER for code in codebook]
     elif with_delimiter:
         return [DELIMITER + ints_to_str(code) + DELIMITER for code in codebook]
     else:
@@ -131,6 +132,8 @@ def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True
     df.columns = ['form', 'probability']
     if with_delimiter == 'left':
         df['form'] = DELIMITER + df['form']
+    elif with_delimiter == 'right':
+        df['form'] = df['form'] + DELIMITER
     elif with_delimiter:
         df['form'] = DELIMITER + df['form'] + DELIMITER
     return df.groupby(['form']).sum().reset_index()
@@ -177,6 +180,8 @@ def form_probabilities(p, meanings, code, with_delimiter='both'):
     df = pd.DataFrame({'form': forms, 'probability': p})
     if with_delimiter == 'left':
         df['form'] = DELIMITER + df['form']
+    elif with_delimiter == 'right':
+        df['form'] = df['form'] + DELIMITER
     elif with_delimiter:
         df['form'] = DELIMITER + df['form'] + DELIMITER    
     return df.groupby(['form']).sum().reset_index()
@@ -190,6 +195,8 @@ def form_probabilities_np(source, code, with_delimiter='both'):
     df.columns = ['meaning', 'form', 'probability']
     if with_delimiter == 'left':
         df['form'] = DELIMITER + df['form']
+    elif with_delimiter == 'right':
+        df['form'] = df['form'] + DELIMITER
     elif with_delimiter:
         df['form'] = DELIMITER + df['form'] + DELIMITER
     return df[['form', 'probability']].groupby(['form']).sum().reset_index()

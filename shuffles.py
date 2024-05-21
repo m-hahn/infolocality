@@ -65,18 +65,18 @@ def delimited_sequence_transformer(f):
     def wrapped(s, *a, **k):
         restore = restorer(s)
         l = list(s)
-        l2 = list(strip(s, il.DELIMITER))
+        l2 = list(strip(s, DELIMITER))
         has_delimiter = l != l2
         r = f(l2, *a, **k)
         if has_delimiter:
-            r = itertools.chain([il.DELIMITER], r, [il.DELIMITER])
+            r = itertools.chain([DELIMITER], r, [DELIMITER])
             return restore(r)
         else:
             return restore(r)
     return wrapped
 
 def add_delimiter_sequence(x):
-    return type(x)(itertools.chain([il.DELIMITER], x, [il.DELIMITER]))
+    return type(x)(itertools.chain([DELIMITER], x, [DELIMITER]))
 
 def shuffle_by_skeleton(xs, skeleton):
     """ Shuffle xs while retaining the invariant described by skeleton. """
@@ -105,7 +105,7 @@ def read_faa(filename):
                         yield {
                             'protein': protein,
                             'code': code,
-                            'form': il.DELIMITER + "".join(so_far) + il.DELIMITER,
+                            'form': DELIMITER + "".join(so_far) + DELIMITER,
                         }
                     so_far.clear()
                     code, protein = line.strip(">").split(" ", 1)
@@ -142,6 +142,10 @@ def read_unimorph(filename, with_delimiter='both'):
     elif with_delimiter == 'both':
         result['form'] = DELIMITER + result['form'] + DELIMITER
         result['lemma'] = DELIMITER + result['lemma'] + DELIMITER
+    elif with_delimiter == 'right':
+        result['form'] = result['form'] + DELIMITER
+        result['lemma'] = result['lemma'] + DELIMITER
+        
     return result
 
 def parse_infl(s):
@@ -266,10 +270,10 @@ class DeterministicScramble:
 
     def shuffle(self, s):
         restore = restorer(s)
-        r = list(strip(s, il.DELIMITER))
+        r = list(strip(s, DELIMITER))
         np.random.RandomState(self.seed).shuffle(r)
-        r.insert(0, il.DELIMITER)
-        r.append(il.DELIMITER)
+        r.insert(0, DELIMITER)
+        r.append(DELIMITER)
         return restore(r)
 
 @delimited_sequence_transformer

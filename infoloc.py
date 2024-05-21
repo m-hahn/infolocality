@@ -10,8 +10,7 @@ import pandas as pd
 import scipy.special
 import scipy.stats
 
-DELIMITER = '#'
-EPSILON = 10 ** -5
+EPSILON = 10 ** -8
 
 def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
     """
@@ -26,16 +25,16 @@ def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
         yield xs[:i+1][-k:]
 
 def curves_from_sequences(xs: Iterable[Sequence],
-                          weights=None,
-                          maxlen=None,
-                          monitor=False):
+                          weights: Optional[Iterable]=None,
+                          maxlen: Optional[int]=None,
+                          monitor: bool=False) -> pd.DataFrame:
     counts = counts_from_sequences(xs, weights=weights, maxlen=maxlen, monitor=monitor)
     return curves_from_counts(counts, monitor=monitor)
 
 def counts_from_sequences(xs: Iterable[Sequence],
                           weights: Optional[Iterable],
                           maxlen: Optional[int]=None,
-                          monitor=False):
+                          monitor: bool=False) -> pd.DataFrame:
     """ Return a dataframe with columns t, x_{<t}, x_t, and count,
     where count is the weighted number of observations for the given
     x_{<t} followed by x_t in position t.
@@ -56,12 +55,13 @@ def counts_from_sequences(xs: Iterable[Sequence],
         for t in range(maxlen): # window size
             for chunk in sliding_from_left(x, t+1): 
                 counts[t, chunk[:-1], chunk[-1]] += w
+                
     df = pd.DataFrame(counts.keys())
     df.columns = ['t', 'x_{<t}', 'x_t']
     df['count'] = counts.values()
     return df
 
-def curves_from_counts(df, monitor=False):
+def curves_from_counts(df: pd.DataFrame, monitor: bool=False) -> pd.DataFrame:
     """ 
     Input: a dataframe with columns 't', 'x_{<t}' 'x_t', and 'count',
     where 'x_{<t}' gives a context, and 'count' gives a weight or count
@@ -73,7 +73,7 @@ def curves_from_counts(df, monitor=False):
     log_count = np.log(df['count'])
 
     Z_t = df.groupby('t')['count'].sum()
-    assert (Z_t[0] == Z_t).all()
+    assert np.allclose(Z_t[0], Z_t)
     joint_logp = log_count - np.log(Z_t[0])
     
     Z_context = df.groupby(['t', 'x_{<t}'])['count'].transform('sum')
@@ -84,7 +84,9 @@ def curves_from_counts(df, monitor=False):
         
     return curves(df['t'], joint_logp, conditional_logp)
 
-def curves(t, joint_logp, conditional_logp):
+def curves(t: Sequence,
+           joint_logp: pd.Series,
+           conditional_logp: pd.Series) -> pd.DataFrame:
     """ 
     Input:
     t: A vector of dimension D giving time indices for observations.
@@ -110,16 +112,16 @@ def curves(t, joint_logp, conditional_logp):
     })
     return df
 
-def ee(curves):
+def ee(curves: pd.DataFrame) -> float:
     return curves['H_M_lower_bound'].max()
 
-def transient_information(curves):
+def transient_information(curves: pd.DataFrame) -> float:
     """ Transient information from Crutchfield & Feldman (2003: §4C) """
     h = curves['h_t'].min()
     L = curves['t'] + 1
     return np.sum(L * (curves['h_t'] - h))
 
-def ms_auc(curves):
+def ms_auc(curves: pd.DataFrame) -> float:
     """
     Area under the memory--surprisal trade-off curve.
     Only comparable when two curves have the same entropy rate.
@@ -128,11 +130,15 @@ def ms_auc(curves):
     d_t = curves['h_t'] - h
     return np.trapz(y=d_t, x=curves['H_M_lower_bound'])
 
-def score(J, forms, weights=None, maxlen=None):
+def score(J: Callable[[pd.DataFrame], float],
+          forms: Iterable[Sequence],
+          weights: Optional[Iterable]=None,
+          maxlen: Optional[int]=None) -> float:
     curves = curves_from_sequences(forms, weights=weights, maxlen=maxlen)
     return J(curves)
 
 def test_curve_properties():
+    """ Test invariance properties of the entropy rate curve. """
     def gen_string(T=10, V=5):
         length = random.choice(range(T))
         stuff = [random.choice(range(V)) for _ in range(length)] + ['#']
@@ -140,50 +146,48 @@ def test_curve_properties():
     data = [gen_string() for _ in range(1000)]
     def reverse(xs):
         return xs[:-1][::-1] + ('#',)
-    one = curves_from_sequences(data)
-    two = curves_from_sequences(map(reverse, data))
-    assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
-    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()    
-    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()
+    for i in range(10):
+        w = scipy.special.softmax(np.random.randn(len(data)))
+        one = curves_from_sequences(data, weights=w)
+        two = curves_from_sequences(map(reverse, data), weights=w)
+        assert np.allclose(one['h_t'], two['h_t'])
+        assert np.allclose(one['I_t'][1:], two['I_t'][1:])
+        assert np.allclose(one['H_M_lower_bound'], two['H_M_lower_bound'])
 
+    # Two binary languages with identical curves
     # X_4 = X_1 + X_2 + X_3 (mod 2)
     one = curves_from_sequences(['aaa0', 'aab1', 'aba1', 'abb0', 'baa1', 'bab0', 'bba0', 'bbb1'])
     # X_4 = X_1
     two = curves_from_sequences(['aaa0', 'aab0', 'aba0', 'abb0', 'baa1', 'bab1', 'bba1', 'bbb1'])
-    assert (np.abs(one['h_t'] - two['h_t']) < EPSILON).all()
-    assert (np.abs(one['I_t'][1:] - two['I_t'][1:]) < EPSILON).all()
-    assert (np.abs(one['H_M_lower_bound'] - two['H_M_lower_bound']) < EPSILON).all()
+    assert np.allclose(one['h_t'], two['h_t'])
+    assert np.allclose(one['I_t'][1:], two['I_t'][1:])
+    assert np.allclose(one['var_h_t'], two['var_h_t'])
+    assert np.allclose(one['H_M_lower_bound'], two['H_M_lower_bound'])    
 
     def mark_position(seq):
         return tuple(1000*x + y for x, y in enumerate(seq[:-1])) + ('#',)
 
     fixed_length_data = [tuple(random.choice(range(5)) for _ in range(10)) + ('#',) for _ in range(1000)]
-    one = curves_from_sequences(fixed_length_data)
-    two = curves_from_sequences(map(mark_position, fixed_length_data))
-    assert np.abs(one['h_t'].min() - two['h_t'].min()) < EPSILON
-    assert np.abs(one['H_M_lower_bound'].max() - two['H_M_lower_bound'].max()) < EPSILON
+    for i in range(10):
+        w = scipy.special.softmax(np.random.randn(len(fixed_length_data)))
+        one = curves_from_sequences(fixed_length_data, weights=w)
+        two = curves_from_sequences(map(mark_position, fixed_length_data), weights=w)
+        assert np.allclose(one['h_t'].min(), two['h_t'].min())
+        assert np.allclose(one['H_M_lower_bound'].max(), two['H_M_lower_bound'].max())
 
 def test_ee():
     """ Test excess entropy calculation against analytical formulas. """
-    assert np.abs(
-        ee(curves_from_sequences(["ac#", "bd#"])) - (np.log(3) + (1/3)*np.log(2))
-    ) < EPSILON
+    assert np.allclose(ee(curves_from_sequences(["ac#", "bd#"])), np.log(3) + (1/3)*np.log(2))
     for i in range(10):
         # Compare against analytical formula E_2 = \log 3 + 1/3 I_{12}.
         p = scipy.special.softmax(i*np.random.randn(2,2))
         formula = E2(p)
         the_ee = ee(curves_from_sequences(["ac#", "ad#", "bc#", "bd#"], p.flatten()))
-        assert np.abs(the_ee - formula) < EPSILON
+        assert np.allclose(the_ee, formula)
         
-    assert np.abs(
-        ee(curves_from_sequences(["ace#", "adf#", "bce#", "bdf#"])) - (np.log(4) + (1/4)*np.log(2))
-    ) < EPSILON
-    assert np.abs(
-        ee(curves_from_sequences(["ace#", "ade#", "bcf#", "bdf#"])) - (np.log(4) + (1/4)*2*np.log(2))
-    ) < EPSILON
-    assert np.abs(
-        ee(curves_from_sequences(["ace#", "adf#", "bcf#", "bde#"])) - (np.log(4) + (1/4)*2*np.log(2))
-    ) < EPSILON
+    assert np.allclose(ee(curves_from_sequences(["ace#", "adf#", "bce#", "bdf#"])), np.log(4) + (1/4)*np.log(2))
+    assert np.allclose(ee(curves_from_sequences(["ace#", "ade#", "bcf#", "bdf#"])), np.log(4) + (1/4)*2*np.log(2))
+    assert np.allclose(ee(curves_from_sequences(["ace#", "adf#", "bcf#", "bde#"])), np.log(4) + (1/4)*2*np.log(2))
     
     sequences = ["ace#", "acf#", "ade#", "adf#", "bce#", "bcf#", "bde#", "bdf#"]
     for i in range(10):
@@ -191,16 +195,16 @@ def test_ee():
         p = scipy.special.softmax(i*np.random.randn(2,2,2))
         formula = E3(p)
         the_ee = ee(curves_from_sequences(sequences, p.flatten()))        
-        assert np.abs(the_ee - formula) < EPSILON
+        assert np.allclose(the_ee, formula)
 
-def E2(p):
+def E2(p: np.array) -> float:
     """ Excess entropy for delimited strings of fixed length 2 """
     p_x = p.sum(0)
     p_y = p.sum(1)
     mi = scipy.stats.entropy(p_x) + scipy.stats.entropy(p_y) - scipy.stats.entropy(p, axis=None)
     return np.log(3) + 1/3*mi
 
-def E3(p):
+def E3(p: np.array) -> float:
     """ Excess entropy for delimited strings of fixed length 3 """
     p1 = p.sum(axis=(1,2))
     p2 = p.sum(axis=(0,2))        

@@ -7,7 +7,6 @@ import scipy.special
 import scipy.stats
 import scipy.optimize
 import pandas as pd
-import einops
 import tqdm
 
 MK_PATH = "data/generated-MI-distros/generated-MI-distros_%s.txt"
@@ -107,6 +106,53 @@ def tc(joint):
         marginals += entropy(marginal)
     return marginals - entropy(joint, axis=None)
 
+def subsets(xs):
+    return itertools.chain.from_iterable(itertools.combinations(xs, r) for r in range(len(xs)+1))
+
+def coinformation_lattice(joint):
+    # joint is a KxKxK... array of probabilities.
+    T = joint.ndim
+    entropies = {}
+    for indices in subsets(range(T)):
+        complement = [i for i in range(T) if i not in indices]
+        marginal = joint.sum(axis=tuple(complement))
+        entropies[indices] = entropy(marginal, axis=None)
+    q = -(-1)**np.arange(T+1)
+    coinformations = {
+        indices : sum(q[len(subset)] * entropies[subset] for subset in subsets(indices))
+        for indices in entropies
+    }
+    return coinformations
+
+def test_coinformation_lattice():
+    # Synergy pattern
+    xor = np.array([[[1, 0], [0, 1]], [[0, 1], [1, 0]]])/4
+    lattice = coinformation_lattice(xor)
+    results = [
+        lattice[()], lattice[(1,)], lattice[(2,)], lattice[(2,)], lattice[0,1], lattice[0,2], lattice[1,2], lattice[0,1,2]
+    ]
+    assert np.allclose(results, [0, np.log(2), np.log(2), np.log(2), 0, 0, 0, -np.log(2)])
+
+    # Redundancy pattern
+    bigbit = np.array([[[1, 0], [0, 0]], [[0, 0], [0, 1]]])/2
+    lattice = coinformation_lattice(bigbit)
+    results = [
+        lattice[()], lattice[(1,)], lattice[(2,)], lattice[(2,)], lattice[0,1], lattice[0,2], lattice[1,2], lattice[0,1,2]
+    ]
+    assert results[0] == 0
+    assert np.allclose(results[1:], np.log(2))
+
+    # Markov chain can never have negative coinformation
+    for i in range(2,10):
+        markov = scipy.special.softmax(
+            np.random.randn(i,i,1,1,1,1) +
+            np.random.randn(1,i,i,1,1,1) +
+            np.random.randn(1,1,i,i,1,1) +
+            np.random.randn(1,1,1,i,i,1) +
+            np.random.randn(1,1,1,1,i,i)
+        )
+        assert all(mi >= -0.0000001 for mi in coinformation_lattice(markov).values())
+
 def perturbed_conditional(px, py, perturbation_size=1):
     """
     p(y | x) \propto p(y) exp(perturbation_size * a(x,y)) where a(x,y) ~ Normal.
@@ -171,6 +217,7 @@ def dependents(V, k, coupling=1, source='rem', consistent=True, **kwds):
     return ps, meanings, mis
 
 def astarn(num_A, num_N, num_classes=1, p_halt=.5, maxlen=4, source='rem', coupling=1, **kwds):
+    import einops
     # UGH! Needs to be a noun plus a MULTISET of adjectives, unordered...
     if source == 'zipf':
         As = [zipf_mandelbrot(num_A, **kwds) for _ in range(num_classes)]
@@ -226,7 +273,7 @@ def mansfield_kemp_source(which='training', A_rate=1, N_rate=1, D_rate=1): # or 
     ps = ps / ps.sum()
     return ps, meanings
 
-def empirical_source(filename, truncate=0, len_limit=0, rename=None):
+def empirical_source(filename, truncate=0, len_limit=0, rename=None, filters=None):
     df = pd.read_csv(filename)
     def gen():
         for i, row in df.iterrows():
@@ -249,19 +296,34 @@ def empirical_source(filename, truncate=0, len_limit=0, rename=None):
 
 def couple(p, q, coupling=.5, coupling_type='logspace'):
     """ Couple distribution p with q, where resulting distribution has same entropy as p """
-    target = entropy(p)
-    if type == 'mixture':
+    if coupling_type == 'mixture':
         mix = np.log((1-coupling)*p + coupling*q)
     else:
         mix = (1-coupling) * np.log(p) + coupling * np.log(q)
+    target = entropy(p)
     def objective(T):
         value = entropy(scipy.special.softmax(T*mix))
-        return (value - target)**2
+        return ((value - target)**2).sum()
     T = scipy.optimize.minimize(objective, 1).x.item()
     return scipy.special.softmax(T*mix)
 
+def hierarchical_source(two=.99, three=.2, six=.01, V=5, shuffle=True, **kwds):
+    atom = zipf_mandelbrot(V, **kwds)
+    V2_to_V = np.eye(V)[list(range(V))*V]
+    V2_to_V /= V2_to_V.sum()
 
+    permute = np.random.permutation if shuffle else lambda x: x
+    
+    p1o = (1 - two) * product_distro(atom, atom).reshape(V,V) + two * permute(np.eye(V))/V
+    p1 = (1 - three) * product_distro(p1o.flatten(), atom).reshape(V**2, V) + three * permute(V2_to_V)
 
-    
-    
-    
+    p2o = (1 - two) * product_distro(atom, atom).reshape(V,V) + two * permute(np.eye(V))/V
+    p2 = (1 - three) * product_distro(p2o.flatten(), atom).reshape(V**2, V) + three * permute(V2_to_V)
+
+    p = (1 - six) * product_distro(p1.flatten(), p2.flatten()) + six * permute(np.eye(V**3).flatten())/V**3
+
+    return p.reshape(V,V,V,V,V,V)
+
+if __name__ == '__main__':
+    import nose
+    nose.runmodule()
