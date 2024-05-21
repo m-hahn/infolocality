@@ -6,7 +6,6 @@ import itertools
 from collections import deque
 
 import tqdm
-import unimorph
 import numpy as np
 import pandas as pd
 
@@ -57,14 +56,14 @@ def extract_cv(anipa_phone):
 
 def sequence_transformer(f):
     def wrapped(s, *a, **k):
-        restore = il.restorer(s)
+        restore = restorer(s)
         result = f(s, *a, **k)
         return restore(result)
     return wrapped
 
 def delimited_sequence_transformer(f):
     def wrapped(s, *a, **k):
-        restore = il.restorer(s)
+        restore = restorer(s)
         l = list(s)
         l2 = list(strip(s, il.DELIMITER))
         has_delimiter = l != l2
@@ -189,6 +188,7 @@ def wolex_comparison(**kwds):
     return comparison(read_wolex, WOLEX_PATH, wolex_filenames, scrambles, **kwds)
 
 def unimorph_comparison(**kwds):
+    import unimorph
     ds = DeterministicScramble(seed=0)
     scrambles = {'even_odd': even_odd, 'shuffled': ds.shuffle}
     return comparison(read_unimorph, UNIMORPH_PATH, unimorph.get_list_of_datasets(), scrambles, **kwds)
@@ -211,7 +211,7 @@ def ud_morpheme_order_scores(lang, with_lemma=True):
     orders = list(morpheme_orders(data))
     random.shuffle(orders)
     for order in orders:
-        yield total_order_score(il.ms_auc, data, order), total_order_score(il.ee_lower_bound, data, order), order
+        yield total_order_score(il.ms_auc, data, order), total_order_score(il.ee, data, order), order
         
 def comparison(read, path, langs, scrambles, maxlen=10, seed=0, num_samples=DEFAULT_NUM_SAMPLES):
     for lang in langs:
@@ -254,12 +254,18 @@ def strip(xs, y):
         result = result[:-1]
     return result
 
+def restorer(x):
+    if isinstance(x, str):
+        return "".join
+    else:
+        return type(x)
+
 class DeterministicScramble:
     def __init__(self, seed=0):
         self.seed = seed
 
     def shuffle(self, s):
-        restore = il.restorer(s)
+        restore = restorer(s)
         r = list(strip(s, il.DELIMITER))
         np.random.RandomState(self.seed).shuffle(r)
         r.insert(0, il.DELIMITER)
