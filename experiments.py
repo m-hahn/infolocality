@@ -19,6 +19,10 @@ import shuffles as sh
 import codes as c
 import featurecorr as f
 
+DELIMITER = '#'
+DEFAULT_DELIMITER = 'right'
+EPSILON = 10 ** -8
+
 def fusion_advantage(mi=1/2):
     p = s.mi_mix(mi)
     mi = s.mi(p.reshape(2,2))
@@ -58,7 +62,7 @@ def demonstrate_separation_advantage(num_meanings=100,
                                      num_signals=10,
                                      num_signals_per_morpheme=4,
                                      source='zipf',
-                                     with_delimiter='both',
+                                     with_delimiter=DEFAULT_DELIMITER,
                                      **kwds):
     if source == 'zipf':
         flat_source = s.zipf_mandelbrot(num_meanings**num_meanings_per_word, **kwds)
@@ -133,7 +137,7 @@ def demonstrate_contiguity_preference(num_meanings=10,
                                       num_signals=2,
                                       num_signals_per_morpheme=4,
                                       shuffle=False,
-                                      with_delimiter='both',
+                                      with_delimiter=DEFAULT_DELIMITER,
                                       source='zipf',
                                       unique=True,
                                       **kwds):
@@ -199,16 +203,26 @@ def num_discontinuities(perm):
             which = i in set1
     return d
 
-def summarize(source, code, with_delimiter='both'):
+def summarize(source, code, with_delimiter=DEFAULT_DELIMITER, maxlen=None):
     signal = c.form_probabilities_np(source, code, with_delimiter=with_delimiter)
-    curves = il.curves_from_sequences(signal['form'], signal['probability'])
+    curves = il.curves_from_sequences(signal['form'], signal['probability'], maxlen=maxlen)
     return curves
 
 # when is systematicity *bad*?
 # -- In ABC, if BC have MI, A.BC is better than A.B.C
 
-def strong_combinatoriality_sweep(min_coupling=0, max_coupling=10, num_steps=10, num_samples=10, **kwds):
+def strong_combinatoriality_sweep(
+        min_coupling=0,
+        max_coupling=10,
+        num_steps=10,
+        num_samples=10,
+        variable=True,
+        **kwds):
     perturbations = np.linspace(min_coupling, max_coupling, num_steps)
+    if variable:
+        f = strong_combinatoriality_variable
+    else:
+        f = strong_combinatoriality
     def gen():
         for perturbation in tqdm.tqdm(perturbations):
             for sample in range(num_samples):
@@ -228,7 +242,7 @@ def strong_combinatoriality_variable(
         morpheme_length=1,
         maxlen=10,
         vocab_size=4,
-        with_delimiter='both',
+        with_delimiter=DEFAULT_DELIMITER,
         coupling=0,
         coupling_type='product',
         source='zipf',
@@ -310,7 +324,7 @@ def strong_combinatoriality(num_morphemes=4,
                             num_parts=4,
                             morpheme_length=1,
                             vocab_size=4,
-                            with_delimiter='both',
+                            with_delimiter=DEFAULT_DELIMITER,
                             coupling=0,
                             coupling_type='product',
                             source='zipf',
@@ -406,7 +420,7 @@ def sample_dfs(f, num_samples=1):
 
 def combinatoriality(morpheme_length=1,
                      vocab_size=2,
-                     with_delimiter='both',
+                     with_delimiter=DEFAULT_DELIMITER,
                      source='zipf',
                      coupling=0,
                      shuffle_source=True,
@@ -871,10 +885,9 @@ def two_sweep(source: np.array, redundancy=1, positional=True, monitor=False, **
     df['p00'], df['p01'], df['p10'], df['p11'] = source
     return df
 
-
 def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=1, increment=.05, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
-    source = s.product_distro(s.flip(p0 + 2*increment), s.flip(p0 + 1*increment))
+    source = s.product_distro(s.flip(p0 + 1*increment), s.flip(p0 + 2*increment))
     if i23:
         joint = np.array([1, 0, 0, imbalance]) / (1+imbalance)
         source = i23 * joint + (1-i23) * source
@@ -897,7 +910,7 @@ def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=1, incre
     perms_classification = {
         # strongly systematic
         0: 'id(1) id(2) id(3)',
-        228: 'id(2) id(1) id(3)',
+        288: 'id(2) id(1) id(3)',
         722: 'id(1) id(3) id(2)',
         1032: 'id(2) id(3) id(1)',
         2210: 'id(3) id(1) id(2)',
@@ -1184,7 +1197,7 @@ def shuffled(xs):
     random.shuffle(xs)
     return xs
 
-def locality(V=5, S=2, l=5, with_delimiter='both', **kwds):
+def locality(V=5, S=2, l=5, with_delimiter=DEFAULT_DELIMITER, **kwds):
     """ compare orders for {h, d1, d2} where I[h:d1] > I[h:d2] """
     # dhd is consistently best with S=20, l=5: unambiguous word boundaries.
     # with S=2, l=5 and left delimiter, dhd or hdd is the best, inconsistently.
@@ -1219,7 +1232,7 @@ def locality(V=5, S=2, l=5, with_delimiter='both', **kwds):
 
     return pd.concat(list(gen())), mis, codebook
 
-def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter='both'):
+def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter=DEFAULT_DELIMITER):
     # in English GUM, 
     # amod = 7747 = 32.6%
     # nummod = 928 = 3.9%
@@ -1235,7 +1248,7 @@ def mansfield_kemp(S=50, l=1, A_rate=1, N_rate=1, D_rate=1, with_delimiter='both
     systematic, codebook = c.random_systematic_code(meanings, S, l, unique=True)
     return np_order(source, meanings, systematic, with_delimiter=with_delimiter)
 
-def empirical_np_order(filename="data/de_np.csv", with_delimiter='both', truncate=0, len_limit=1):
+def empirical_np_order(filename="data/de_np.csv", with_delimiter=DEFAULT_DELIMITER, truncate=0, len_limit=1):
     # default len_limit=1 excludes singleton noun NPs
     
     # Empirical MIs (lemmatized, unlemmatized)...
@@ -1259,7 +1272,7 @@ def empirical_np_order(filename="data/de_np.csv", with_delimiter='both', truncat
     print("Loaded source.", file=sys.stderr)
     return np_order(ps, meanings, c.identity_code, with_delimiter=with_delimiter, parts='nAND')
 
-def np_order(source, meanings, code=c.identity_code, with_delimiter='both', parts="nAND"):    
+def np_order(source, meanings, code=c.identity_code, with_delimiter=DEFAULT_DELIMITER, parts="nAND"):    
     def codes():
         for order in itertools.permutations(range(len(parts))):
             label = "".join(parts[i] for i in order)
@@ -1272,7 +1285,7 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter='both', part
     def gen():
         for name, order in tqdm.tqdm(the_codes.items()):
             forms = c.form_probabilities(source, order, code, with_delimiter=with_delimiter)
-            curves = il.curves_from_sequences(forms['form'], forms['p'])
+            curves = il.curves_from_sequences(forms['form'], forms['probability'])
             curves['type'] = name
             yield curves
         return # skip the below; not informative
@@ -1285,9 +1298,11 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter='both', part
         Z = df['p'].sum()
         df['p'] = df['p'] / Z
         if with_delimiter == 'left':
-            df['form'] = il.DELIMITER + df['form']
+            df['form'] = DELIMITER + df['form']
+        elif with_delimiter == 'right':
+            df['form'] = df['form'] + DELIMITER
         elif with_delimiter:
-            df['form'] = il.DELIMITER + df['form'] + il.DELIMITER
+            df['form'] = DELIMITER + df['form'] + DELIMITER
         curves = il.curves_from_sequences(df['form'], df['p'])
         curves['type'] = 'nonsys'
         yield curves
@@ -1325,7 +1340,7 @@ def plot_np_order(df, typology, depvar='af_sum', **kwds):
     df['group_name'] = df['group'].map(lambda s: "/".join(sorted(s)))
     return df
             
-def aanaa(S=50, l=1, with_delimiter='both'):
+def aanaa(S=50, l=1, with_delimiter=DEFAULT_DELIMITER):
     # NA* with up to 4 A's in 3 classes, number of A's is geometric
     
     
@@ -1544,7 +1559,7 @@ def paradigmatic_holistic(A=3, B=2, num_words=4, S=4, l=1, with_delimiter=True, 
     paradigms = c.paradigms(A*B, num_words)
     def gen():
         for paradigm in paradigms:
-            if not il.is_monotonically_increasing(paradigm):
+            if not is_monotonically_increasing(paradigm):
                 ptype = 'nonconvex'
             elif False: # TODO
                 ptype = 'inconsistent'
@@ -1588,23 +1603,24 @@ def word_level_mi(pair_counts, num_baseline_samples=1000):
         for i in range(num_baseline_samples):
             yield 'nonsys', i, pd.DataFrame({'mi': [mi_from_pair_counts(shuffled(pair_counts.keys()), pair_counts.values())]})
 
-    return pd.concat(list(gen_df(word_level())))            
+    return pd.concat(list(gen_df(word_level())))
 
 
 def dep_word_pairs(num_baseline_samples=1000,
                    len_granularity=1,
                    with_space=True,
-                   with_delimiter='both',
+                   with_delimiter=DEFAULT_DELIMITER,
                    keep_order=True,
                    require_adjacent=True,
                    token_field='form',
                    **kwds):
+    # try shuffle preserving head lemma? this would break agreement while preserving entropy rate
     counts = f.raw_word_pair_counts( 
         keep_order=keep_order,
         require_adjacent=require_adjacent,
         token_field=token_field,
         **kwds,
-    ) 
+    )
     return (
         word_level_mi(counts, num_baseline_samples=num_baseline_samples),
         letter_level(
@@ -1616,9 +1632,12 @@ def dep_word_pairs(num_baseline_samples=1000,
         ),
     )
 
+def is_monotonically_increasing(xs):
+    return (np.diff(xs) > -EPSILON).all()
+
 def shuffle_preserving_length(forms: pd.Series, granularity=1):
     lenclass = forms.map(len) // granularity
-    assert il.is_monotonically_increasing(lenclass)
+    assert is_monotonically_increasing(lenclass)
     new_forms = []
     for length in lenclass.drop_duplicates(): # ascending order
         mask = lenclass == length
@@ -1626,19 +1645,13 @@ def shuffle_preserving_length(forms: pd.Series, granularity=1):
         new_forms.extend(shuffled_forms)
     return new_forms
 
-def ngrams(n=2):
-    # start with strong n-gram models for 1:n, maybe neural
-    # use them to calculate cross-entropy in a test set, hence E
-    # compare to standard shuffles
-    pass
-
-def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_space=True, with_delimiter='both'):
+def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_space=True, with_delimiter=DEFAULT_DELIMITER):
 
     def format_form(xs):
         return "".join([
-            il.DELIMITER if with_delimiter else "",
+            DELIMITER if with_delimiter else "",
             (" " if with_space else "").join(xs),
-            il.DELIMITER if with_delimiter == 'both' else ""
+            DELIMITER if with_delimiter == 'both' else ""
         ])
 
     def inner_letter_level():
@@ -1652,24 +1665,118 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
         forms, weights = both['forms'], both['weights']
         for i in tqdm.tqdm(range(num_baseline_samples)):
             yield 'nonsys', i, il.curves_from_sequences(np.random.permutation(forms), weights) # note: does not preserve entropy rate
-            ds = sh.DeterministicScramble()
+            ds = sh.DeterministicScramble(i)
             # could form phonotactically ok-ish words using WOLEX?            
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
             shuffled_forms = shuffle_preserving_length(forms, granularity=len_granularity)
             yield 'nonsysl', i, il.curves_from_sequences(shuffled_forms, weights)
 
     return pd.concat(list(gen_df(inner_letter_level())))
-        
-# Ideas / Todo
-# DONE. Correct strong systematicity study, or switch everything to MS tradeoff...
-# 2. Adjective order with empirical frequencies across languages, and baselines as in AANAA
-# 3. Agreement baselines: why is there agreement? why does it target certain dependencies andd not others? Idea: very low MI -> agreement bad; some MI -> some agreement good
-#    1. Shuffle the agreement forms on adjectives/verbs -- grab a different form of the same lemma deterministically as a function of features. 
-# 4. Word-level probability shuffles. Would this be counterevidence?
-# 5. -> Test p(cats) = p(cat)p(s) better than pulling out any other feature.
+
+def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
+    # Number of symbols per string
+    K = 6
+    
+    # Hierarchically structured source: ((AB)C)((DE)F)
+    source = s.hierarchical_source(V=V, **kwds)
+    
+    # Code is random strongly systematic.
+    code = c.random_code(V, V, 1, unique=unique)
+
+    # Get signal probabilities.
+    signal = c.word_probabilities(source, code, with_delimiter=with_delimiter)
+    
+    # Go through global permutations. E is symmetric to reversal, so only need to go through half of them
+    num_perms = math.factorial(K) // 2
+    perms = itertools.islice(itertools.permutations(range(K)), num_perms)
+
+    well_nested_perms = {
+        a + b for a, b in
+        itertools.product([(0,1,2), (1,0,2), (2,0,1), (2,1,0)], [(3,4,5), (4,3,5), (5,3,4), (5,4,3)])
+    }
+    
+    #well_nested_perms |= {tuple(reversed(perm)) for perm in well_nested_perms}
+    
+    def gen():
+        for perm in tqdm.tqdm(perms, total=num_perms):
+            reordered = np.array(signal['form'].map(lambda s: sh.reorder_form(s, perm)))
+            curves = il.curves_from_sequences(reordered, weights=signal['probability']) 
+            ms = il.ms_auc(curves)
+            ee = il.ee(curves)
+            yield {
+                'is_well_nested': perm in well_nested_perms,
+                'ms': ms,
+                'ee': ee,
+                'perm': perm,
+        }
+    df = pd.DataFrame(gen()).sort_values('ee')
+    df['i'] = range(len(df))
+    return df
+
+# Logical connective idea:
+# - AND is a good connective because it corresponds to multiplication of probabilities. OR is also good because it corresponds to addition. NAND and XOR are horrible, because they are maximally nonlinear! Why is NOT good?
+# A world state is a set of facts, each of which has a random binary value. 2^K world states.
+# A proposition is a <F, C>, a set of facts F and a connective C, which is a mapping from the truth values of the set of facts under the current world state, to a single truth value. 
+# An utterance expresses a proposition <F,C> such that C(F)=1.
+# An utterance for a proposition <F,C> consists of a string for C and a string for each f in F.
+# A language consists of a set of connectives, including the connective that expresses only one fact.
+# Given a world state, an utterance is formed by randomly choosing a connective C, then randomly choosing a set of facts F, and then expressing the proposition <F,C>.
+# This needs to be done in a way such that different sets of connectives give the same entropy rate.
+
+# Next idea: compound propositions.
+
+# Idea: Given a Dyck language and a source, how to match up the Dyck strings with the source?
 
 
+DYCK_ORDERS = [
+    '()[]{}',
+    '()[{]}',
+    '()[{}]',
+    '([)]{}',
+    '([){]}',
+    '([){}]',
+    '([]){}',
+    '([{)]}',
+    '([{)}]',
+    '([]{)}',
+    '([{])}',
+    '([{})]',
+    '([]{})',
+    '([{]})',
+    '([{}])',
+]
+
+def pseudodyck_lang():
+    structure = {
+        "abc": "xyz",
+        "def": "uvw",
+        "ghi": "rst",
+    }
 
 
+def main(cmd):
+    if cmd == 'three_sweep':
+        # Generate data for Figures 2B, 2C, and 2D
+        return ...
+    elif cmd == 'permutations':
+        # Generate data for Figure 2E
+        source, signal, df = demonstrate_contiguity_preference()
+        df.to_csv(sys.stdout)
+        return 0
+    elif cmd == 'hierarchical_orders':
+        # Generate data for Figure 2F
+        df = hierarchical_orders()
+        df.to_csv(sys.stdout)
+    elif cmd == 'adj_noun':
+        # Generate data for Figure 3C
+        df1, df2 = dep_word_pairs()
+        df2.to_csv(sys.stdout)
+    elif cmd == 'np_order':
+        # Generate data for Figure 3D
+        df, typology = empirical_np_order()
+        df.to_csv(sys.stdout)
+    else:
+        raise ValueError("Give me argument in {three_sweep, permutations, hierarchical_orders, adj_noun, np_order}" % cmd)
 
-
+if __name__ == '__main__':
+    sys.exit(main(*sys.argv[1:]))
