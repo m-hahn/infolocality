@@ -31,6 +31,8 @@ import shuffles as sh
 #
 
 STEM = "X"
+DELIMITER = "#"
+DEFAULT_DELIMITER = 'right'
 
 def freeze(d):
     return frozenset(d.items())
@@ -39,7 +41,7 @@ def read_features(
         filename,
         required_pos={'NOUN'},
         required_labels={'Case', 'Number'},
-        include_labels={'Case', 'Number', 'Number[psor]', 'Person[psor]'},
+        include_labels={'Case', 'Number', 'Number[psor]', 'Person[psor]', 'Definite'},
         reject_labels={'PronType'}):
     def gen(lines):
         for line in lines:
@@ -59,7 +61,12 @@ def convert_ud_um(d):
     conversion = {
         'Sing' : 'SG',
         'Plur' : 'PL',
+        'Dual' : 'DU',
         'NOUN' : 'N',
+
+        'Def': 'DEF',
+        'Ind': 'IND',
+        'Com': 'COM',
         
         'VERB' : 'V',
         'Pres': 'PRS',
@@ -99,6 +106,8 @@ def convert_ud_um(d):
     def gen():
         if d['pos'] == 'NOUN':
             yield convert(d['pos'])
+            if 'Definite' in d:
+                yield convert(d['Definite'])            
             yield convert(d['Case'])
             yield convert(d['Number'])
             if 'Number[psor]' in d and 'Person[psor]' in d:
@@ -125,13 +134,14 @@ def experiment(
         um_filename,
         alpha=1/2,
         num_samples=50,
-        len_granularity=1,
+        len_granularity=1, # or 2
         stem_redundancy=1,
-        include_psor=True):
+        include_psor=True,
+        with_delimiter=DEFAULT_DELIMITER):
     if include_psor:
-        counts = read_features(ud_filename, include_labels={'Case', 'Number', 'Number[psor]', 'Person[psor]'})
+        counts = read_features(ud_filename, include_labels={'Case', 'Number', 'Number[psor]', 'Person[psor]', 'Definite'})
     else:
-        counts = read_features(ud_filename, include_labels={'Case', 'Number'})
+        counts = read_features(ud_filename, include_labels={'Case', 'Number', 'Definite'})
     counts_um = Counter({convert_ud_um(dict(bundle)):count for bundle, count in counts.items()})
     desired = desired_bundles(counts_um)
     forms = pd.read_csv(um_filename, sep="\t")
@@ -140,6 +150,14 @@ def experiment(
     forms['count'] = forms['features'].map(lambda f: counts_um[f] + alpha)
     forms['len'] = forms['form'].map(len)
     forms = forms.sort_values('len', ignore_index=True) # WTF
+    
+    if with_delimiter == 'left':
+        forms['form'] = forms['form'].map(lambda s: DELIMITER + s)
+    elif with_delimiter == 'right':
+        forms['form'] = forms['form'].map(lambda s: s + DELIMITER)
+    elif with_delimiter:
+        forms['form'] = forms['form'].map(lambda s: DELIMITER + s + DELIMITER)
+    
     forms.to_csv(sys.stderr)
     def conditions():
         yield 'real', 0, il.curves_from_sequences(forms['form'], forms['count'])
@@ -157,6 +175,7 @@ def experiment(
             new_forms = pd.Series(new_forms)
             forms['forms_nonsysl'] = new_forms 
             yield 'nonsysl', i, il.curves_from_sequences(new_forms, forms['count'])
+            breakpoint()
             
     def gen():
         for name, i, df in conditions():
@@ -170,7 +189,15 @@ def experiment(
 # NUMBER = {SG=Sing, PL=Plur}
 # PERSON = {PSS1S, PSS2S, PSS3S, PSS1P, PSS2P, PSS3P}
 
-def run(num_samples=15000):
+def run(num_samples=10000):
+    # Generate data for Figure 3B
+    
+    ara_forms, ara_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/ar/all.conllu", "data/ara", num_samples=num_samples, include_psor=False) # baHr
+    ara_curves['lang'] = 'Arabic (sound)'
+
+    ara2_forms, ara2_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/ar/all.conllu", "data/ara2", num_samples=num_samples, include_psor=False) # baHr > 'abHAr
+    ara2_curves['lang'] = 'Arabic (broken)'
+    
     finnish_forms, finnish_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/fi/all.conllu", "data/fin", num_samples=num_samples) # talo
     finnish_curves['lang'] = 'Finnish'
     
@@ -182,7 +209,8 @@ def run(num_samples=15000):
     
     hun_forms, hun_curves = experiment("/Users/canjo/data/cliqs/ud-treebanks-v2.8/hu/all.conllu", "data/hun", num_samples=num_samples) # cél
     hun_curves['lang'] = 'Hungarian'
-    return pd.concat([turkish_curves, finnish_curves, latin_curves, hun_curves])
+
+    return pd.concat([turkish_curves, finnish_curves, latin_curves, hun_curves, ara_curves, ara2_curves])
 
 if __name__ == '__main__':
     run().to_csv(sys.stdout)
