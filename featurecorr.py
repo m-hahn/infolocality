@@ -2,7 +2,6 @@ import sys
 import random
 from collections import Counter
 
-import conllu
 import glob
 import pandas as pd
 import numpy as np
@@ -31,7 +30,8 @@ CS_CORPUS_FILENAMES = [
 ]
 
 CORPUS_FILENAMES = EN_CORPUS_FILENAMES
-NORMS_FILENAME = "/Users/canjo/data/lancaster_norms/norms_binary.csv"
+#NORMS_FILENAME = "/Users/canjo/data/lancaster_norms/norms_binary.csv"
+NORMS_FILENAME = "/Users/canjo/data/glasgow_norms/glasgow_norms_binary.csv"
 WORD_FIELD = 'Word'
 TOKEN_FIELD = 'lemma'
 MORPH_FEATURES = {'Number'}
@@ -114,6 +114,7 @@ def read_norms(norms_filename=NORMS_FILENAME,
     return vectors
 
 def load_corpus(corpus_filenames=CORPUS_FILENAMES):
+    import conllu
     text = "\n".join(open(filename).read() for filename in corpus_filenames)
     corpus = conllu.parse(text)
     return corpus
@@ -149,8 +150,8 @@ def extract_word_pairs(corpus,
                     if (
                         (not require_adjacent or head_pos == dep_pos - 1 or head_pos == dep_pos + 1)
                         and (head['upos'], token['upos']) in target_pos
-                        and (headf := head[field]).isalpha()
-                        and (depf := token[field]).isalpha()):
+                        and (headf := head[field].casefold()).isalpha()
+                        and (depf := token[field].casefold()).isalpha()):
                         if keep_order and head_pos < dep_pos:
                             yield headf, depf
                         elif keep_order:
@@ -266,6 +267,7 @@ def plot(df):
 
     
 def main(type='morpheme'):
+    # Generate data for Figure 3E
     if type.startswith('morpheme'):
         df = word_feature_mis()
     elif type.startswith('word'):
