@@ -12,6 +12,9 @@ import pandas as pd
 import infoloc as il
 import anipa_to_ipa
 
+DELIMITER = '#'
+DEFAULT_DELIMITER = 'right'
+
 try:
     import cliqs.corpora
 except ImportError:
@@ -66,14 +69,31 @@ def delimited_sequence_transformer(f):
         restore = restorer(s)
         l = list(s)
         l2 = list(strip(s, DELIMITER))
-        has_delimiter = l != l2
+        has_left_delimiter = l[0] == DELIMITER
+        has_right_delimiter = l[-1] == DELIMITER
         r = f(l2, *a, **k)
-        if has_delimiter:
-            r = itertools.chain([DELIMITER], r, [DELIMITER])
-            return restore(r)
-        else:
-            return restore(r)
+        if has_left_delimiter:
+            r = itertools.chain([DELIMITER], r)
+        if has_right_delimiter:
+            r = itertools.chain(r, [DELIMITER])
+        return restore(r)
     return wrapped
+
+def test_delimited_sequence_transformer():
+    one = "abc"
+    two = "def#"
+    three = "#ghi"
+    four = "#jkl#"
+    
+    f = delimited_sequence_transformer(lambda x: reorder(x, [1,2,0]))
+    assert f(one) == "bca"
+    assert f(two) == "efd#"
+    assert f(three) == "#hig"
+    assert f(four) == "#klj#"
+    assert f(list(one)) == list("bca")
+    assert f(list(two)) == list("efd#")
+    assert f(list(three)) == list("#hig")
+    assert f(list(four)) == list("#klj#")
 
 def add_delimiter_sequence(x):
     return type(x)(itertools.chain([DELIMITER], x, [DELIMITER]))
@@ -127,7 +147,7 @@ def reorder_cv(anipa_form):
     skeleton = list(map(extract_cv, anipa_form))
     return shuffle_by_skeleton(anipa_form, skeleton)
 
-def read_unimorph(filename, with_delimiter='both'):
+def read_unimorph(filename, with_delimiter=DEFAULT_DELIMITER):
     with open(filename) as infile:
         lines = [line.strip().split("\t") for line in infile if line.strip()]
     lemmas, forms, features = zip(*lines)
@@ -265,16 +285,13 @@ def restorer(x):
         return type(x)
 
 class DeterministicScramble:
-    def __init__(self, seed=0):
+    def __init__(self, seed=0, with_delimiter=DEFAULT_DELIMITER):
         self.seed = seed
+        self.shuffle = delimited_sequence_transformer(self.scramble)
 
-    def shuffle(self, s):
-        restore = restorer(s)
-        r = list(strip(s, DELIMITER))
-        np.random.RandomState(self.seed).shuffle(r)
-        r.insert(0, DELIMITER)
-        r.append(DELIMITER)
-        return restore(r)
+    def scramble(self, s):
+        np.random.RandomState(self.seed).shuffle(s)
+        return s
 
 @delimited_sequence_transformer
 def scramble_form(s):
@@ -374,15 +391,16 @@ def write_dfs(file, dfs):
 
 def main(arg):
     if arg == 'unimorph':
-        write_dfs(sys.stdout, unimorph_comparison(maxlen=10))
+        write_dfs(sys.stdout, unimorph_comparison())
         return 0
     elif arg == 'wolex':
-        write_dfs(sys.stdout, wolex_comparison(maxlen=10))
+        # Generat data for Figure 3A
+        write_dfs(sys.stdout, wolex_comparison())
         return 0
     elif arg == 'genome':
         write_dfs(sys.stdout, genome_comparison(maxlen=10))
     else:
-        print("Give me argument in {wolex, unimorph, genome}", file=sys.stderr)
+        print("Give me argument in {wolex, unimorph, genome, test}", file=sys.stderr)
         return 1
         
 if __name__ == '__main__':
