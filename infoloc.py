@@ -12,18 +12,6 @@ import scipy.stats
 
 EPSILON = 10 ** -8
 
-def sliding_from_left(xs: Sequence, k: int) -> Iterator[Sequence]:
-    """
-    Sliding windows from the left of maximum size k.
-    
-    Example:
-    >>> list(sliding_from_left("abcde", 3))
-    ["a", "ab", "abc", "bcd", "cde"]
-    
-    """
-    for i in range(len(xs)):
-        yield xs[:i+1][-k:]
-
 def curves_from_sequences(xs: Iterable[Sequence],
                           weights: Optional[Iterable]=None,
                           maxlen: Optional[int]=None,
@@ -39,23 +27,34 @@ def counts_from_sequences(xs: Iterable[Sequence],
     where count is the weighted number of observations for the given
     x_{<t} followed by x_t in position t.
     """
+    if monitor:
+        print("Aggregating n-gram statistics...", file=sys.stderr)
+    
     if maxlen is None:
         if not isinstance(xs, Sequence):
             xs = list(xs)
         maxlen = max(map(len, xs))
-    if weights is None:
-        weights = itertools.repeat(1)
 
     if monitor:
-        print("Aggregating n-gram statistics...", file=sys.stderr)
-    counts = Counter()
-    for x, w in zip(tqdm.tqdm(xs, disable=not monitor), weights):
-        # x is a string / sequence.
-        # w is a weight / probability / count.
-        for t in range(maxlen): # window size
-            for chunk in sliding_from_left(x, t+1): 
-                counts[t, chunk[:-1], chunk[-1]] += w
-                
+        xs = tqdm.tqdm(xs)
+
+    if weights is None:
+        # fast path
+        counts = Counter(
+            (t, x[max(0, i-t) : i], x[i])
+            for x in xs
+            for t in range(maxlen)
+            for i in range(len(x))
+        )
+    else:
+        counts = Counter()
+        for x, w in zip(xs, weights):
+            # x is a string / sequence.
+            # w is a weight / probability / count.
+            for t in range(maxlen): # window size
+                for i in range(len(x)):
+                    counts[t, x[max(0, i-t):i], x[i]] += w
+                    
     df = pd.DataFrame(counts.keys())
     df.columns = ['t', 'x_{<t}', 'x_t']
     df['count'] = counts.values()
