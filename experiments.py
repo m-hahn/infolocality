@@ -13,6 +13,7 @@ import scipy.optimize
 import matplotlib.pyplot as plt
 from plotnine import *
 
+import utils
 import infoloc as il
 import sources as s
 import shuffles as sh
@@ -20,8 +21,7 @@ import codes as c
 import featurecorr as f
 
 DELIMITER = '#'
-DEFAULT_DELIMITER = 'right'
-EPSILON = 10 ** -8
+DEFAULT_DELIMITER = utils.RightDelimiter()
 
 def fusion_advantage(mi=1/2):
     p = s.mi_mix(mi)
@@ -885,7 +885,7 @@ def two_sweep(source: np.array, redundancy=1, positional=True, monitor=False, **
     df['p00'], df['p01'], df['p10'], df['p11'] = source
     return df
 
-def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=1, increment=.05, **kwds):
+def three_sweep(i23=0, p0=2/3, redundancy=1, positional=True, imbalance=2, increment=.05, **kwds):
     """ Sweep through all 2^3!=40320 unambiguous positional codes for a 3-bit source. """
     source = s.product_distro(s.flip(p0 + 1*increment), s.flip(p0 + 2*increment))
     if i23:
@@ -1054,7 +1054,7 @@ def id_vs_cnot3(i23=0.9, p0=.5, redundancy=1, positional=True, make_plot=False, 
         [1, 1, 0],                
     ]) + positional*np.array([[0,2,4]]), redundancy, -1)
 
-    holistic = np.array(shuffled(id_code))
+    holistic = np.array(utils.shuffled(id_code))
         
 
     df1 = summarize(source, id_code, **kwds)
@@ -1192,11 +1192,6 @@ def huffman_vs_separable(mi=1):
     df3['type'] = 'separable_nonlocal'
     return pd.concat([df1, df2, df3])
 
-def shuffled(xs):
-    xs = list(xs)
-    random.shuffle(xs)
-    return xs
-
 def locality(V=5, S=2, l=5, with_delimiter=DEFAULT_DELIMITER, **kwds):
     """ compare orders for {h, d1, d2} where I[h:d1] > I[h:d2] """
     # dhd is consistently best with S=20, l=5: unambiguous word boundaries.
@@ -1218,7 +1213,7 @@ def locality(V=5, S=2, l=5, with_delimiter=DEFAULT_DELIMITER, **kwds):
             for meaning in meanings
         ],
         'hdd_free': [
-            (meaning['h'],) + tuple(shuffled(list(meaning.values())[1:]))
+            (meaning['h'],) + tuple(utils.shuffled(list(meaning.values())[1:]))
             for meaning in meanings
         ]
     }
@@ -1297,12 +1292,7 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter=DEFAULT_DELI
         df['p'] = df['p'] * (df['form'].map(len) + 1) # TODO: +1?
         Z = df['p'].sum()
         df['p'] = df['p'] / Z
-        if with_delimiter == 'left':
-            df['form'] = DELIMITER + df['form']
-        elif with_delimiter == 'right':
-            df['form'] = df['form'] + DELIMITER
-        elif with_delimiter:
-            df['form'] = DELIMITER + df['form'] + DELIMITER
+        df['form'] = with_delimiter.delimit_array(df['form'])
         curves = il.curves_from_sequences(df['form'], df['p'])
         curves['type'] = 'nonsys'
         yield curves
@@ -1327,13 +1317,10 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter=DEFAULT_DELI
         frozenset("nNDA ADNn".split()),
         frozenset("nDNA ANDn".split()),
     ]
-    typology['group'] = typology['type'].map(lambda t: first(s for s in groups if t in s))
+    typology['group'] = typology['type'].map(lambda t: utils.first(s for s in groups if t in s))
     af = typology[['group', 'af', 'num_genera']].drop_duplicates().groupby('group').sum().reset_index()
     af.columns = ['group', 'af_sum', 'num_genera_sum']
     return pd.concat(list(gen())), typology.merge(af)
-
-def first(xs):
-    return next(iter(xs))
 
 def plot_np_order(df, typology, depvar='af_sum', **kwds):
     df = typology.merge(df[df['t']==df['t'].max()])[['af_sum', 'num_genera_sum', 'group', 'H_M_lower_bound', 'h_t']]
@@ -1559,7 +1546,7 @@ def paradigmatic_holistic(A=3, B=2, num_words=4, S=4, l=1, with_delimiter=True, 
     paradigms = c.paradigms(A*B, num_words)
     def gen():
         for paradigm in paradigms:
-            if not is_monotonically_increasing(paradigm):
+            if not utils.is_monotonically_increasing(paradigm):
                 ptype = 'nonconvex'
             elif False: # TODO
                 ptype = 'inconsistent'
@@ -1601,7 +1588,7 @@ def word_level_mi(pair_counts, num_baseline_samples=1000):
         forms, weights = list(pair_counts.keys()), list(pair_counts.values())
         yield 'real', 0, pd.DataFrame({'mi': [mi_from_pair_counts(pair_counts.keys(), pair_counts.values())]})
         for i in range(num_baseline_samples):
-            yield 'nonsys', i, pd.DataFrame({'mi': [mi_from_pair_counts(shuffled(pair_counts.keys()), pair_counts.values())]})
+            yield 'nonsys', i, pd.DataFrame({'mi': [mi_from_pair_counts(utils.shuffled(pair_counts.keys()), pair_counts.values())]})
 
     return pd.concat(list(gen_df(word_level())))
 
@@ -1632,12 +1619,9 @@ def dep_word_pairs(num_baseline_samples=1000,
         ),
     )
 
-def is_monotonically_increasing(xs):
-    return (np.diff(xs) > -EPSILON).all()
-
 def shuffle_preserving_length(forms: pd.Series, granularity=1):
     lenclass = forms.map(len) // granularity
-    assert is_monotonically_increasing(lenclass)
+    assert utils.is_monotonically_increasing(lenclass)
     new_forms = []
     for length in lenclass.drop_duplicates(): # ascending order
         mask = lenclass == length
@@ -1648,11 +1632,8 @@ def shuffle_preserving_length(forms: pd.Series, granularity=1):
 def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_space=True, with_delimiter=DEFAULT_DELIMITER):
 
     def format_form(xs):
-        return "".join([
-            DELIMITER if with_delimiter else "",
-            (" " if with_space else "").join(xs),
-            DELIMITER if with_delimiter == 'both' else ""
-        ])
+        content = (" " if with_space else "").join(xs)
+        return with_delimiter.delimit_string(content)
 
     def inner_letter_level():
         forms = list(map(format_form, counts.keys()))
@@ -1757,7 +1738,20 @@ def pseudodyck_lang():
 def main(cmd):
     if cmd == 'three_sweep':
         # Generate data for Figures 2B, 2C, and 2D
-        return ...
+        import multiprocessing
+        with multiprocessing.Pool() as pool:
+            couplings = np.linspace(0, 1, 100)
+            df = pd.concat(list(pool.imap_unordered(three_sweep, couplings)))
+        df.to_csv(sys.stdout)
+        return 0
+    elif cmd == 'two_sweep':
+        # Generate data for SI analysis of length-2 binary codes for sources on 4 outcomes
+        import multiprocessing
+        sources = simplex_grid(4, 100)
+        with multiprocessing.Pool() as pool:
+            df = pd.concat(list(pool.imap_unordered(two_sweep, sources)))
+        df.to_csv(sys.stdout)
+        return 0
     elif cmd == 'permutations':
         # Generate data for Figure 2E
         source, signal, df = demonstrate_contiguity_preference()
@@ -1776,7 +1770,7 @@ def main(cmd):
         df, typology = empirical_np_order()
         df.to_csv(sys.stdout)
     else:
-        raise ValueError("Give me argument in {three_sweep, permutations, hierarchical_orders, adj_noun, np_order}" % cmd)
+        raise ValueError("Give me argument in {three_sweep, two_sweep, permutations, hierarchical_orders, adj_noun, np_order}" % cmd)
 
 if __name__ == '__main__':
     sys.exit(main(*sys.argv[1:]))

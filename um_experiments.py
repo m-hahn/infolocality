@@ -6,6 +6,7 @@ import tqdm
 import numpy as np
 import pandas as pd
 
+import utils
 import infoloc as il
 import shuffles as sh
 
@@ -32,7 +33,7 @@ import shuffles as sh
 
 STEM = "X"
 DELIMITER = "#"
-DEFAULT_DELIMITER = 'right'
+DEFAULT_DELIMITER = utils.RightDelimiter()
 
 def freeze(d):
     return frozenset(d.items())
@@ -150,14 +151,7 @@ def experiment(
     forms['count'] = forms['features'].map(lambda f: counts_um[f] + alpha)
     forms['len'] = forms['form'].map(len)
     forms = forms.sort_values('len', ignore_index=True) # WTF
-    
-    if with_delimiter == 'left':
-        forms['form'] = forms['form'].map(lambda s: DELIMITER + s)
-    elif with_delimiter == 'right':
-        forms['form'] = forms['form'].map(lambda s: s + DELIMITER)
-    elif with_delimiter:
-        forms['form'] = forms['form'].map(lambda s: DELIMITER + s + DELIMITER)
-    
+    forms['form'] = with_delimiter.delimit_array(forms['form'])
     forms.to_csv(sys.stderr)
     def conditions():
         yield 'real', 0, il.curves_from_sequences(forms['form'], forms['count'])

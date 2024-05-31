@@ -213,11 +213,6 @@ def word_pair_mis(corpus_filenames=CORPUS_FILENAMES,
     )
     return df
 
-def shuffled(xs):
-    ys = list(xs)
-    random.shuffle(ys)
-    return ys
-
 def raw_word_pair_counts(corpus_filenames=CORPUS_FILENAMES,
                          target_pos=PAIR_POS,
                          relations=RELATIONS,

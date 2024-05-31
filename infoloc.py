@@ -56,7 +56,7 @@ def counts_from_sequences(xs: Iterable[Sequence],
                     counts[t, x[max(0, i-t):i], x[i]] += w
                     
     df = pd.DataFrame(counts.keys())
-    df.columns = ['t', 'x_{<t}', 'x_t']
+    df.columns = pd.Index(['t', 'x_{<t}', 'x_t'])
     df['count'] = counts.values()
     return df
 
@@ -83,7 +83,7 @@ def curves_from_counts(df: pd.DataFrame, monitor: bool=False) -> pd.DataFrame:
         
     return curves(df['t'], joint_logp, conditional_logp)
 
-def curves(t: Sequence,
+def curves(t: pd.Series,
            joint_logp: pd.Series,
            conditional_logp: pd.Series) -> pd.DataFrame:
     """ 
@@ -118,7 +118,7 @@ def transient_information(curves: pd.DataFrame) -> float:
     """ Transient information from Crutchfield & Feldman (2003: §4C) """
     h = curves['h_t'].min()
     L = curves['t'] + 1
-    return np.sum(L * (curves['h_t'] - h))
+    return (L * (curves['h_t'] - h)).sum()
 
 def ms_auc(curves: pd.DataFrame) -> float:
     """
@@ -196,14 +196,14 @@ def test_ee():
         the_ee = ee(curves_from_sequences(sequences, p.flatten()))        
         assert np.allclose(the_ee, formula)
 
-def E2(p: np.array) -> float:
+def E2(p: np.ndarray) -> float:
     """ Excess entropy for delimited strings of fixed length 2 """
     p_x = p.sum(0)
     p_y = p.sum(1)
     mi = scipy.stats.entropy(p_x) + scipy.stats.entropy(p_y) - scipy.stats.entropy(p, axis=None)
     return np.log(3) + 1/3*mi
 
-def E3(p: np.array) -> float:
+def E3(p: np.ndarray) -> float:
     """ Excess entropy for delimited strings of fixed length 3 """
     p1 = p.sum(axis=(1,2))
     p2 = p.sum(axis=(0,2))        

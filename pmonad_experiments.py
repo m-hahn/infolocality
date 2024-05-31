@@ -9,6 +9,7 @@ import scipy.special
 import pandas as pd
 import tqdm
 
+import utils
 import pmonad
 import pcfg
 import infoloc as il
@@ -16,6 +17,7 @@ import shuffles as sh
 import sources as s
 
 DELIMITER = '#'
+DEFAULT_DELIMITER = utils.RightDelimiter()
 
 flat = itertools.chain.from_iterable
 
@@ -179,7 +181,7 @@ def head_direction_consistency(
         with_brackets=True,
         T=1,
         bound=2,
-        with_delimiter=True):
+        with_delimiter=DEFAULT_DELIMITER):
     # show: by-category consistent > consistent
     # comparing to total inconsistency is hard because it increases the entropy rate
 
@@ -212,7 +214,7 @@ def dutch_vs_german(
         independent=False,
         T=1,
         bound=3,
-        with_delimiter=True):
+        with_delimiter=DEFAULT_DELIMITER):
     """ Nested vs. cross-serial dependencies, as in German vs. Dutch """
     # When independent=True, Dutch and German come out exactly the same---same dependency length effect.
     # When independent=False, Dutch is slightly better than German.
@@ -228,19 +230,11 @@ def dutch_vs_german(
     german_grammar = pcfg.make_bounded_pcfg(pcfg.PSpaceEnumeration, zip(the_rules, probs), bound, start="S")
     forms = pcfg_forms(german_grammar, with_delimiter=with_delimiter)
     forms.columns = ['german', 'p']
-    
+
+    @utils.delimited_sequence_transformer
     def convert_to_dutch(form):
-        form = form.strip(DELIMITER)
         midpoint = len(form)//2
-        raw_form = form[:midpoint] + form[midpoint:][::-1]
-        if with_delimiter == 'left':
-            return DELIMITER + raw_form
-        elif with_delimiter == 'right':
-            return raw_form + DELIMITER
-        elif with_delimiter:
-            return DELIMITER + raw_form + DELIMITER
-        else:
-            return raw_form
+        return form[:midpoint] + form[midpoint:][::-1]
 
     ds = sh.DeterministicScramble()
     
@@ -317,7 +311,7 @@ def random_xbar_pcfg(num_cats, num_heads, num_adjuncts, adjunct_optional=False, 
         
     return cf, reg
 
-def format_forms(forms, with_delimiter=True):
+def format_forms(forms, with_delimiter=DEFAULT_DELIMITER):
     def recode(x, _seen={}):
         if x in _seen:
             return _seen[x]
@@ -325,17 +319,10 @@ def format_forms(forms, with_delimiter=True):
             _seen[x] = len(_seen)
             return _seen[x]
     def process_form(xs):
-        if with_delimiter == 'left':
-            return DELIMITER + "".join(chr(65+recode(x)) for x in xs)
-        elif with_delimiter == 'right':
-            return "".join(chr(65+recode(x)) for x in xs) + DELIMITER
-        elif with_delimiter:
-            return DELIMITER + "".join(chr(65+recode(x)) for x in xs) + DELIMITER
-        else:
-            return "".join(chr(65+recode(x)) for x in xs)
+        return with_delimiter.delimit_string("".join(chr(65+recode(x)) for x in xs))
     return map(process_form, forms)
 
-def analyze_enum(enum, with_delimiter=True, transformation=None, p_transform=1, **kwds):
+def analyze_enum(enum, with_delimiter=DEFAULT_DELIMITER, transformation=None, p_transform=1, **kwds):
     M = type(enum)
     if transformation is not None:
         if p_transform < 1:
@@ -345,7 +332,7 @@ def analyze_enum(enum, with_delimiter=True, transformation=None, p_transform=1, 
         elif p_transform == 1:
             enum = enum >> M.lift_ret(transformation)
     forms, ps = zip(*enum.values)
-    curves = il.curves_from_sequences(format_forms(forms), ps, **kwds)
+    curves = il.curves_from_sequences(format_forms(forms, with_delimiter=with_delimiter), ps, **kwds)
     return curves
 
 def random_cnf_pcfg(num_nt, num_t, T=1, bound=None):

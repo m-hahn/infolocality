@@ -9,11 +9,11 @@ import tqdm
 import numpy as np
 import pandas as pd
 
+import utils
 import infoloc as il
 import anipa_to_ipa
 
-DELIMITER = '#'
-DEFAULT_DELIMITER = 'right'
+DEFAULT_DELIMITER = utils.RightDelimiter()
 
 try:
     import cliqs.corpora
@@ -57,47 +57,6 @@ def extract_cv(anipa_phone):
     else:
         return ""
 
-def sequence_transformer(f):
-    def wrapped(s, *a, **k):
-        restore = restorer(s)
-        result = f(s, *a, **k)
-        return restore(result)
-    return wrapped
-
-def delimited_sequence_transformer(f):
-    def wrapped(s, *a, **k):
-        restore = restorer(s)
-        l = list(s)
-        l2 = list(strip(s, DELIMITER))
-        has_left_delimiter = l[0] == DELIMITER
-        has_right_delimiter = l[-1] == DELIMITER
-        r = f(l2, *a, **k)
-        if has_left_delimiter:
-            r = itertools.chain([DELIMITER], r)
-        if has_right_delimiter:
-            r = itertools.chain(r, [DELIMITER])
-        return restore(r)
-    return wrapped
-
-def test_delimited_sequence_transformer():
-    one = "abc"
-    two = "def#"
-    three = "#ghi"
-    four = "#jkl#"
-    
-    f = delimited_sequence_transformer(lambda x: reorder(x, [1,2,0]))
-    assert f(one) == "bca"
-    assert f(two) == "efd#"
-    assert f(three) == "#hig"
-    assert f(four) == "#klj#"
-    assert f(list(one)) == list("bca")
-    assert f(list(two)) == list("efd#")
-    assert f(list(three)) == list("#hig")
-    assert f(list(four)) == list("#klj#")
-
-def add_delimiter_sequence(x):
-    return type(x)(itertools.chain([DELIMITER], x, [DELIMITER]))
-
 def shuffle_by_skeleton(xs, skeleton):
     """ Shuffle xs while retaining the invariant described by skeleton. """
     # The skeleton is assumed to contain any delimiters
@@ -113,7 +72,7 @@ def shuffle_by_skeleton(xs, skeleton):
     assert all(i is not None for i in reordering)
     return reorder(xs, reordering)
 
-def read_faa(filename):
+def read_faa(filename, with_delimiter=DEFAULT_DELIMITER):
     def gen():
         so_far = []
         code = None
@@ -125,7 +84,7 @@ def read_faa(filename):
                         yield {
                             'protein': protein,
                             'code': code,
-                            'form': DELIMITER + "".join(so_far) + DELIMITER,
+                            'form': with_delimiter.delimit_string("".join(so_far)),
                         }
                     so_far.clear()
                     code, protein = line.strip(">").split(" ", 1)
@@ -133,16 +92,18 @@ def read_faa(filename):
                     so_far.append(line.strip())
     return pd.DataFrame(gen())
 
-def read_wolex(filename):
+def read_wolex(filename, with_delimiter=DEFAULT_DELIMITER):
     df = pd.read_csv(filename)
-    df['form'] = df['word'].map(lambda x: tuple(anipa_to_ipa.segment(x)))
-    df['ipa_form'] = df['word'].map(anipa_to_ipa.convert_word)
+    df['form'] = df['word'].map(lambda x: tuple(anipa_to_ipa.segment(x))).map(lambda xs: utils.strip(xs, '#')).map(with_delimiter.delimit_sequence)
+    df['ipa_form'] = with_delimiter.delimit_array(df['word'].map(lambda s: s.strip("#")).map(anipa_to_ipa.convert_word))
     return df
 
+@utils.delimited_sequence_transformer
 def reorder_manner(anipa_form):
     skeleton = list(map(extract_manner, anipa_form))
     return shuffle_by_skeleton(anipa_form, skeleton)
 
+@utils.delimited_sequence_transformer
 def reorder_cv(anipa_form):
     skeleton = list(map(extract_cv, anipa_form))
     return shuffle_by_skeleton(anipa_form, skeleton)
@@ -155,17 +116,9 @@ def read_unimorph(filename, with_delimiter=DEFAULT_DELIMITER):
         raise FileNotFoundError
     result = pd.DataFrame({'lemma': lemmas, 'form': forms, 'features': features})
     result['lemma'] = result['lemma'].map(str.casefold)
-    result['form'] = result['form'].map(str.casefold)    
-    if with_delimiter == 'left':
-        result['form'] = DELIMITER + result['form'] 
-        result['lemma'] = DELIMITER + result['lemma']
-    elif with_delimiter == 'both':
-        result['form'] = DELIMITER + result['form'] + DELIMITER
-        result['lemma'] = DELIMITER + result['lemma'] + DELIMITER
-    elif with_delimiter == 'right':
-        result['form'] = result['form'] + DELIMITER
-        result['lemma'] = result['lemma'] + DELIMITER
-        
+    result['form'] = result['form'].map(str.casefold)
+    result['form'] = with_delimiter.delimit_array(result['form'])
+    result['lemma'] = with_delimiter.delimit_array(result['lemma'])
     return result
 
 def parse_infl(s):
@@ -237,7 +190,13 @@ def ud_morpheme_order_scores(lang, with_lemma=True):
     for order in orders:
         yield total_order_score(il.ms_auc, data, order), total_order_score(il.ee, data, order), order
         
-def comparison(read, path, langs, scrambles, maxlen=10, seed=0, num_samples=DEFAULT_NUM_SAMPLES):
+def comparison(read,
+               path,
+               langs,
+               scrambles,
+               maxlen=None,
+               seed=0,
+               num_samples=DEFAULT_NUM_SAMPLES):
     for lang in langs:
         filename = os.path.join(path, lang)
         print("Analyzing", filename, file=sys.stderr)
@@ -270,45 +229,31 @@ def comparison(read, path, langs, scrambles, maxlen=10, seed=0, num_samples=DEFA
                 ht['sample'] = i
                 yield ht
             
-def strip(xs, y):
-    result = xs
-    if xs[0] == y:
-        result = result[1:]
-    if result[-1] == y:
-        result = result[:-1]
-    return result
-
-def restorer(x):
-    if isinstance(x, str):
-        return "".join
-    else:
-        return type(x)
-
 class DeterministicScramble:
     def __init__(self, seed=0, with_delimiter=DEFAULT_DELIMITER):
         self.seed = seed
-        self.shuffle = delimited_sequence_transformer(self.scramble)
+        self.shuffle = utils.delimited_sequence_transformer(self.scramble)
 
     def scramble(self, s):
         np.random.RandomState(self.seed).shuffle(s)
         return s
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def scramble_form(s):
     random.shuffle(s)
     return s
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def reorder_form(s, order):
     return reorder(s, order)
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def reorder_total(s, total_order):
     def lookup_order(x):
         return total_order.index((x.split("=")[0],))
     return sorted(s, key=lookup_order)
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def fuse_morphemes(s, ordered_bundles):
     parts = dict(x.split("=") for x in s)
     for bundle in ordered_bundles:
@@ -318,11 +263,11 @@ def fuse_morphemes(s, ordered_bundles):
             value = ",".join(values)
             yield "=".join([label, value])
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def even_odd(s):
     return s[::2] + s[1::2]
 
-@delimited_sequence_transformer
+@utils.delimited_sequence_transformer
 def outward_in(s):
     s = deque(s)
     r = []
@@ -400,7 +345,7 @@ def main(arg):
     elif arg == 'genome':
         write_dfs(sys.stdout, genome_comparison(maxlen=10))
     else:
-        print("Give me argument in {wolex, unimorph, genome, test}", file=sys.stderr)
+        print("Give me argument in {wolex, unimorph, genome}", file=sys.stderr)
         return 1
         
 if __name__ == '__main__':

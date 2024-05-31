@@ -6,9 +6,11 @@ import numpy as np
 import scipy.special
 import pandas as pd
 
+import utils
 import huffman
 
 DELIMITER = '#'
+DEFAULT_DELIMITER = utils.RightDelimiter()
 
 def segments(iterable, breakpoints):
     """ Segments
@@ -56,16 +58,9 @@ def ints_to_str(ints, offset=65):
 # Stenographers' keyboards have ~20... similar to the unigram perplexity.
 # 
 
-def huffman_lexicon(forms, weights, n, with_delimiter=True):
+def huffman_lexicon(forms, weights, n, with_delimiter=DEFAULT_DELIMITER):
     codebook = huffman.huffman(weights, n=n)
-    if with_delimiter == 'left':
-        return [DELIMITER + ints_to_str(code) for code in codebook]
-    elif with_delimiter == 'right':
-        return [ints_to_str(code) + DELIMITER for code in codebook]
-    elif with_delimiter:
-        return [DELIMITER + ints_to_str(code) + DELIMITER for code in codebook]
-    else:
-        return list(map(ints_to_str, codebook))
+    return list(map(with_delimiter.delimit_string, map(ints_to_str, codebook)))
 
 def rand_str(V, k):
     ints = [random.choice(range(V)) for _ in range(k)]
@@ -124,18 +119,13 @@ def encode_weak_contiguous(ms, codes):
     # ms is a sequence of morpheme ids
     return np.hstack([code[m] for m, code in zip(ms, codes)])
 
-def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=True):
+def word_probabilities(p_Mk, code, encode=encode_contiguous, with_delimiter=DEFAULT_DELIMITER):
     def gen():
         for i, mk in enumerate(itertools.product(*map(range, p_Mk.shape))):
             yield ints_to_str(encode(mk, code)), p_Mk[mk]
     df = pd.DataFrame(gen())
     df.columns = ['form', 'probability']
-    if with_delimiter == 'left':
-        df['form'] = DELIMITER + df['form']
-    elif with_delimiter == 'right':
-        df['form'] = df['form'] + DELIMITER
-    elif with_delimiter:
-        df['form'] = DELIMITER + df['form'] + DELIMITER
+    df['form'] = with_delimiter.delimit_array(df['form'])
     return df.groupby(['form']).sum().reset_index()
 
 def as_code(code: np.array):
@@ -174,31 +164,21 @@ def random_systematic_code(meanings, S, l, unique=False, combination_fn=concaten
     codebook = dict(zip(value_set, map(ints_to_str, random_digits)))
     return systematic_code(codebook.__getitem__, combination_fn=combination_fn), codebook
 
-def form_probabilities(p, meanings, code, with_delimiter='both'):
+def form_probabilities(p, meanings, code, with_delimiter=DEFAULT_DELIMITER):
     """ code is a mapping from meanings (iterables of feature bundles) to strings """
     forms = map(code, meanings)
     df = pd.DataFrame({'form': forms, 'probability': p})
-    if with_delimiter == 'left':
-        df['form'] = DELIMITER + df['form']
-    elif with_delimiter == 'right':
-        df['form'] = df['form'] + DELIMITER
-    elif with_delimiter:
-        df['form'] = DELIMITER + df['form'] + DELIMITER    
+    df['form'] = with_delimiter.delimit_array(df['form'])
     return df.groupby(['form']).sum().reset_index()
 
-def form_probabilities_np(source, code, with_delimiter='both'):
+def form_probabilities_np(source, code, with_delimiter=DEFAULT_DELIMITER):
     """ code is an array of same-length integers representing symbols """
     def gen():
         for i, m in enumerate(itertools.product(*map(range, source.shape))):
             yield ints_to_str(m), ints_to_str(code[m]), source[m]
     df = pd.DataFrame(gen())
     df.columns = ['meaning', 'form', 'probability']
-    if with_delimiter == 'left':
-        df['form'] = DELIMITER + df['form']
-    elif with_delimiter == 'right':
-        df['form'] = df['form'] + DELIMITER
-    elif with_delimiter:
-        df['form'] = DELIMITER + df['form'] + DELIMITER
+    df['form'] = with_delimiter.delimit_array(df['form'])
     return df[['form', 'probability']].groupby(['form']).sum().reset_index()
 
 def random_code(M, S, l, unique=False):
@@ -268,7 +248,7 @@ def cartesian_forms(V, k):
 
 flat = itertools.chain.from_iterable        
 
-def repeating_blocks(V, k, m, overlapping=True):
+def repeating_blocks(V, k, m, overlapping=True, with_delimiter=DEFAULT_DELIMITER):
     vocab = list(range(V))
     def gen():
         for vs in cartesian_indices(V, m):
@@ -276,7 +256,7 @@ def repeating_blocks(V, k, m, overlapping=True):
                 [(1-overlapping)*b*V + vs[b]]*k
                 for b in range(m)
             ]
-            yield DELIMITER + "".join(flat(ints_to_str(x) for x in parts)) + DELIMITER
+            yield with_delimiter.delimit_string("".join(flat(ints_to_str(x) for x in parts)))
     return pd.DataFrame({'form': list(gen())})
 
 if __name__ == '__main__':
