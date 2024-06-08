@@ -1,6 +1,5 @@
 import sys
 import random
-import itertools
 from collections import Counter
 from typing import *
 
@@ -34,6 +33,9 @@ def counts_from_sequences(xs: Iterable[Sequence],
         if not isinstance(xs, Sequence):
             xs = list(xs)
         maxlen = max(map(len, xs))
+        
+    if monitor:
+        print("Using maxlen: %d" % maxlen, file=sys.stderr)
 
     if monitor:
         xs = tqdm.tqdm(xs)
@@ -62,7 +64,7 @@ def counts_from_sequences(xs: Iterable[Sequence],
 
 def curves_from_counts(df: pd.DataFrame, monitor: bool=False) -> pd.DataFrame:
     """ 
-    Input: a dataframe with columns 't', 'x_{<t}' 'x_t', and 'count',
+    Input: a dataframe with columns 't', 'x_{<t}', and 'count',
     where 'x_{<t}' gives a context, and 'count' gives a weight or count
     for an item in that context.
     """
@@ -70,7 +72,6 @@ def curves_from_counts(df: pd.DataFrame, monitor: bool=False) -> pd.DataFrame:
         print("Normalizing probabilities...", file=sys.stderr, end=" ")
 
     log_count = np.log(df['count'])
-
     Z_t = df.groupby('t')['count'].sum()
     assert np.allclose(Z_t[0], Z_t)
     joint_logp = log_count - np.log(Z_t[0])
@@ -221,9 +222,29 @@ def E3(p: np.ndarray) -> float:
     formula = np.log(4) + 1/4*(tc - i123 + i13)
     return formula
 
+def main(args) -> int:
+    with open(args.filename) as lines:
+        lines = map(str.strip, lines)
+        if args.delimiter is not None:
+            lines = (tuple(line.split(args.delimiter)) for line in lines)
+        df = curves_from_sequences(lines, maxlen=args.maxlen, monitor=True)
+    df.to_csv(sys.stdout)
+    return 0
+
 if __name__ == '__main__':
-    import nose
-    nose.runmodule()
+    args = sys.argv[1:]
+    if not args:
+        import nose
+        nose.runmodule()
+    else:
+        import argparse
+        argparser = argparse.ArgumentParser("Estimate entropy rate curves from a text file. Run with no arguments to run tests.")
+        argparser.add_argument('filename', type=str)
+        argparser.add_argument('-m', '--maxlen', type=int, default=None)
+        argparser.add_argument('-d', '--delimiter', type=str, default=None)
+        args = argparser.parse_args()
+        sys.exit(main(args))
+    
  
 
 

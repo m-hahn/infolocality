@@ -1,3 +1,4 @@
+import csv
 import random
 import operator
 import itertools
@@ -25,6 +26,28 @@ def first(xs: Iterable[T]) -> T:
 
 def is_monotonically_increasing(xs: np.ndarray) -> bool:
     return (np.diff(xs) > -EPSILON).all()
+
+def the_only(xs):
+    """ Return the single value of a one-element iterable """
+    x, = xs
+    return x
+
+def write_dicts(file, lines):
+    lines_iter = iter(lines)
+    first_line = next(lines_iter)
+    writer = csv.DictWriter(file, first_line.keys())
+    writer.writeheader()
+    writer.writerow(first_line)
+    for line in lines_iter:
+        writer.writerow(line)        
+
+def write_dfs(file, dfs):
+    def gen():
+        for df in dfs:
+            for _, row in df.iterrows():
+                yield dict(row)
+    write_dicts(file, gen())
+
 
 class Delimiter:
     def parts(self, x: T) -> Iterable[Union[str, T]]:

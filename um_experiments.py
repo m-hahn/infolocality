@@ -158,18 +158,9 @@ def experiment(
         for i in tqdm.tqdm(range(num_samples)):
             yield 'dscramble', i, il.curves_from_sequences(forms['form'].map(sh.DeterministicScramble(i).shuffle), forms['count'])
             nonsys_forms = pd.Series(np.random.permutation(forms['form'].values))
-            forms['forms_nonsys'] = nonsys_forms
             yield 'nonsys', i, il.curves_from_sequences(nonsys_forms, forms['count'])
-            new_forms = []
-            lenclass = forms['len'] // len_granularity
-            for length in lenclass.drop_duplicates(): # ascending order
-                mask = lenclass == length
-                shuffled_forms = np.random.permutation(forms[mask]['form'])
-                new_forms.extend(shuffled_forms)
-            new_forms = pd.Series(new_forms)
-            forms['forms_nonsysl'] = new_forms 
+            new_forms = sh.shuffle_preserving_length(forms['form'])
             yield 'nonsysl', i, il.curves_from_sequences(new_forms, forms['count'])
-            breakpoint()
             
     def gen():
         for name, i, df in conditions():

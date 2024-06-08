@@ -304,7 +304,7 @@ def strong_combinatoriality_variable(
     #    'probability': source,
     #})
     signals['nonsysl'] = pd.DataFrame({
-        'form': shuffle_preserving_length(signals['strong']['form'], granularity=len_granularity),
+        'form': sh.shuffle_preserving_length(signals['strong']['form'], granularity=len_granularity),
         'probability': source,
     })
         
@@ -1283,19 +1283,6 @@ def np_order(source, meanings, code=c.identity_code, with_delimiter=DEFAULT_DELI
             curves = il.curves_from_sequences(forms['form'], forms['probability'])
             curves['type'] = name
             yield curves
-        return # skip the below; not informative
-        # nonsystematic code, following the last permutation (DNAn, a good one)
-        the_forms = map(code, order)
-        df = pd.DataFrame({'form': the_forms, 'p': forms['p']})
-        df['form'] = np.random.permutation(df['form'])
-        # for utterance x, q(x) \propto |x| p(x), to create a true stationary distribution.
-        df['p'] = df['p'] * (df['form'].map(len) + 1) # TODO: +1?
-        Z = df['p'].sum()
-        df['p'] = df['p'] / Z
-        df['form'] = with_delimiter.delimit_array(df['form'])
-        curves = il.curves_from_sequences(df['form'], df['p'])
-        curves['type'] = 'nonsys'
-        yield curves
 
     # empirical typological frequencies from Dryer 2017
     typology = pd.DataFrame({
@@ -1619,16 +1606,6 @@ def dep_word_pairs(num_baseline_samples=1000,
         ),
     )
 
-def shuffle_preserving_length(forms: pd.Series, granularity=1):
-    lenclass = forms.map(len) // granularity
-    assert utils.is_monotonically_increasing(lenclass)
-    new_forms = []
-    for length in lenclass.drop_duplicates(): # ascending order
-        mask = lenclass == length
-        shuffled_forms = np.random.permutation(forms[mask])
-        new_forms.extend(shuffled_forms)
-    return new_forms
-
 def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_space=True, with_delimiter=DEFAULT_DELIMITER):
 
     def format_form(xs):
@@ -1649,7 +1626,7 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
             ds = sh.DeterministicScramble(i)
             # could form phonotactically ok-ish words using WOLEX?            
             yield 'dscramble', i, il.curves_from_sequences(map(ds.shuffle, forms), weights)
-            shuffled_forms = shuffle_preserving_length(forms, granularity=len_granularity)
+            shuffled_forms = sh.shuffle_preserving_length(forms, granularity=len_granularity)
             yield 'nonsysl', i, il.curves_from_sequences(shuffled_forms, weights)
 
     return pd.concat(list(gen_df(inner_letter_level())))

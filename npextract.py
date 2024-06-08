@@ -72,6 +72,6 @@ def extract_nps(*filenames):
         writer.writerow(np._asdict())
 
 if __name__ == '__main__':
-    extract_adjectives(*sys.argv[1:])
+    extract_nps(*sys.argv[1:])
                         
                 

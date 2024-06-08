@@ -1,9 +1,9 @@
 import os
 import sys
-import csv
 import random
 import itertools
 from collections import deque
+from typing import *
 
 import tqdm
 import numpy as np
@@ -14,20 +14,16 @@ import infoloc as il
 import anipa_to_ipa
 
 DEFAULT_DELIMITER = utils.RightDelimiter()
+DEFAULT_COUNT_DELIMITER = "\t"
 
-try:
-    import cliqs.corpora
-except ImportError:
-    pass
-
-PROTEINS_PATH = "/Users/canjo/data/genome/"
-PROTEINS_FILENAME = "GRCh37_latest_protein.faa"
-UNIMORPH_PATH = "/Users/canjo/data/unimorph/"
+PROTEINS_PATH = "/Users/canjo/data/genome/GRCh37_latest_protein.faa"
 WOLEX_PATH = "/Users/canjo/data/wolex/"
 
-DEFAULT_NUM_SAMPLES = 100
+DEFAULT_NUM_SAMPLES = 10
 
-def reorder(xs, indices):
+T = TypeVar("T", bound=Any)
+
+def reorder(xs: Iterable[T], indices: Iterable[int]) -> Sequence[T]:
     """ reorder
 
     Elements of xs in the order specified by indices.
@@ -43,7 +39,17 @@ def reorder(xs, indices):
     assert len(xs) == len(indices)
     return [xs[i] for i in indices]
 
-def extract_manner(anipa_phone):
+def shuffle_preserving_length(forms: pd.Series, granularity: int=1) -> pd.Series:
+    lenclass = forms.map(len) // granularity
+    assert utils.is_monotonically_increasing(lenclass)
+    new_forms = []
+    for length in lenclass.drop_duplicates(): # ascending order
+        mask = lenclass == length
+        shuffled_forms = np.random.permutation(forms[mask])
+        new_forms.extend(shuffled_forms)
+    return new_forms
+
+def extract_manner(anipa_phone: str) -> str:
     if anipa_phone.startswith("C"):
         return anipa_phone[3]
     elif anipa_phone.startswith("V"):
@@ -51,13 +57,13 @@ def extract_manner(anipa_phone):
     else:
         return anipa_phone # word or morpheme boundary
 
-def extract_cv(anipa_phone):
+def extract_cv(anipa_phone: str) -> str:
     if anipa_phone:
         return anipa_phone[0]
     else:
         return ""
 
-def shuffle_by_skeleton(xs, skeleton):
+def shuffle_by_skeleton(xs: Sequence[T], skeleton: Sequence[str]) -> Sequence[T]:
     """ Shuffle xs while retaining the invariant described by skeleton. """
     # The skeleton is assumed to contain any delimiters
     assert len(skeleton) == len(xs)
@@ -72,7 +78,7 @@ def shuffle_by_skeleton(xs, skeleton):
     assert all(i is not None for i in reordering)
     return reorder(xs, reordering)
 
-def read_faa(filename, with_delimiter=DEFAULT_DELIMITER):
+def read_faa(filename: str, with_delimiter: utils.Delimiter=DEFAULT_DELIMITER) -> pd.DataFrame:
     def gen():
         so_far = []
         code = None
@@ -92,176 +98,35 @@ def read_faa(filename, with_delimiter=DEFAULT_DELIMITER):
                     so_far.append(line.strip())
     return pd.DataFrame(gen())
 
-def read_wolex(filename, with_delimiter=DEFAULT_DELIMITER):
+def read_wolex(filename: str, with_delimiter: utils.Delimiter=DEFAULT_DELIMITER) -> pd.DataFrame:
     df = pd.read_csv(filename)
     df['form'] = df['word'].map(lambda x: tuple(anipa_to_ipa.segment(x))).map(lambda xs: utils.strip(xs, '#')).map(with_delimiter.delimit_sequence)
     df['ipa_form'] = with_delimiter.delimit_array(df['word'].map(lambda s: s.strip("#")).map(anipa_to_ipa.convert_word))
     return df
 
-@utils.delimited_sequence_transformer
-def reorder_manner(anipa_form):
-    skeleton = list(map(extract_manner, anipa_form))
-    return shuffle_by_skeleton(anipa_form, skeleton)
-
-@utils.delimited_sequence_transformer
-def reorder_cv(anipa_form):
-    skeleton = list(map(extract_cv, anipa_form))
-    return shuffle_by_skeleton(anipa_form, skeleton)
-
-def read_unimorph(filename, with_delimiter=DEFAULT_DELIMITER):
-    with open(filename) as infile:
-        lines = [line.strip().split("\t") for line in infile if line.strip()]
-    lemmas, forms, features = zip(*lines)
-    if not lines:
-        raise FileNotFoundError
-    result = pd.DataFrame({'lemma': lemmas, 'form': forms, 'features': features})
-    result['lemma'] = result['lemma'].map(str.casefold)
-    result['form'] = result['form'].map(str.casefold)
-    result['form'] = with_delimiter.delimit_array(result['form'])
-    result['lemma'] = with_delimiter.delimit_array(result['lemma'])
-    return result
-
-def parse_infl(s):
-    return sorted(s.split("|"))
-
-def read_ud(lang):
-    def gen():
-        for s in cliqs.corpora.ud_corpora[lang].sentences(fix_content_head=False):
-            for n in s.nodes():
-                if n != 0:
-                    yield {
-                        'word': s.node[n]['word'],
-                        'lemma': s.node[n]['lemma'],
-                        'pos': s.node[n]['pos'],
-                        'infl': tuple(parse_infl(s.node[n]['infl'])),
-                    }
-    df = pd.DataFrame(gen())
-    lemma_infl = []
-    word_infl = []
-    for infl, lemma, word in zip(df['infl'], df['lemma'], df['word']):
-        lemma_infl.append(infl + ("Lemma="+lemma,))
-        word_infl.append(infl + ("Word="+word,))
-    df['word_infl'] = word_infl        
-    df['lemma_infl'] = lemma_infl
-    return df
-
 def genome_comparison(**kwds):
-    ds = DeterministicScramble(seed=0)
-    scrambles = {'even_odd': even_odd, 'shuffled': ds.shuffle}
-    return comparison(read_faa, PROTEINS_PATH, [PROTEINS_FILENAME], scrambles, **kwds)
+    df = read_faa(PROTEINS_PATH)
+    return comparison(df, baselines=['ds'], **kwds)
 
 def wolex_comparison(**kwds):
     wolex_filenames = [
         filename for filename in os.listdir(WOLEX_PATH)
         if filename.endswith(".Parsed.CSV-utf8")
     ]
-    ds = DeterministicScramble(seed=0)
-    scrambles = {
-        'even_odd': even_odd,
-        'manner': reorder_manner,
-        'shuffled': ds.shuffle,
-        'cv': reorder_cv
-    }
-    return comparison(read_wolex, WOLEX_PATH, wolex_filenames, scrambles, **kwds)
-
-def unimorph_comparison(**kwds):
-    import unimorph
-    ds = DeterministicScramble(seed=0)
-    scrambles = {'even_odd': even_odd, 'shuffled': ds.shuffle}
-    return comparison(read_unimorph, UNIMORPH_PATH, unimorph.get_list_of_datasets(), scrambles, **kwds)
-
-
-# (Mostly) agglutinative langs in UD:
-# Uralic/Finnic: Finnish, Karelian, Livvi, Estonian
-# Uralic/Mordvinic: Erzya, Moksha
-# Uralic/Ugric: Hungarian
-# Uralic/Permian: Komi
-# Uralic/Sami: North Sami, Skolt Sami
-# Turkic: Turkish, Kazakh, Uyghur
-# East Asian: Japanese, Korean
-def ud_morpheme_order_scores(lang, with_lemma=True):
-    df = read_ud(lang)
-    if with_lemma:
-        data = df['lemma_infl']
-    else:
-        data = df['infl']    
-    orders = list(morpheme_orders(data))
-    random.shuffle(orders)
-    for order in orders:
-        yield total_order_score(il.ms_auc, data, order), total_order_score(il.ee, data, order), order
-        
-def comparison(read,
-               path,
-               langs,
-               scrambles,
-               maxlen=None,
-               seed=0,
-               num_samples=DEFAULT_NUM_SAMPLES):
-    for lang in langs:
-        filename = os.path.join(path, lang)
-        print("Analyzing", filename, file=sys.stderr)
-
-        try:
-            wordforms = read(filename)
-        except FileNotFoundError:
-            print("File not found", file=sys.stderr)
-            continue
-        n = len(wordforms)
-
-        if 'count' in wordforms.columns:
-            weights = wordforms['count']
-        else:
-            weights = None
-
-        ht_real = il.curves_from_sequences(wordforms['form'], maxlen=maxlen, weights=weights)
-        ht_real['real'] = 'real'
-        ht_real['lang'] = lang
-        ht_real['n'] = n
-        ht_real['sample'] = 0
-        yield ht_real
-
-        for i in tqdm.tqdm(range(num_samples)):
-            for scramble_name, scramble_fn in scrambles.items():
-                ht = il.curves_from_sequences(wordforms['form'].map(scramble_fn), maxlen=maxlen, weights=weights)
-                ht['real'] = scramble_name
-                ht['lang'] = lang
-                ht['n'] = n
-                ht['sample'] = i
-                yield ht
+    for filename in wolex_filenames:
+        wolex = read_wolex(os.path.join(WOLEX_PATH, filename))
+        yield from comparison(wolex, baselines=['ds', 'manner', 'cv'], label=filename, **kwds)
             
 class DeterministicScramble:
-    def __init__(self, seed=0, with_delimiter=DEFAULT_DELIMITER):
+    def __init__(self, seed: int=0, with_delimiter: utils.Delimiter=DEFAULT_DELIMITER):
         self.seed = seed
         self.shuffle = utils.delimited_sequence_transformer(self.scramble)
 
-    def scramble(self, s):
+    def scramble(self, s: Sequence[T]) -> Sequence[T]:
         np.random.RandomState(self.seed).shuffle(s)
         return s
 
-@utils.delimited_sequence_transformer
-def scramble_form(s):
-    random.shuffle(s)
-    return s
-
-@utils.delimited_sequence_transformer
-def reorder_form(s, order):
-    return reorder(s, order)
-
-@utils.delimited_sequence_transformer
-def reorder_total(s, total_order):
-    def lookup_order(x):
-        return total_order.index((x.split("=")[0],))
-    return sorted(s, key=lookup_order)
-
-@utils.delimited_sequence_transformer
-def fuse_morphemes(s, ordered_bundles):
-    parts = dict(x.split("=") for x in s)
-    for bundle in ordered_bundles:
-        values = [parts.get(b, "") for b in bundle]
-        if any(values):
-            label = ",".join(bundle)
-            value = ",".join(values)
-            yield "=".join([label, value])
+reorder_form = utils.delimited_sequence_transformer(reorder)
 
 @utils.delimited_sequence_transformer
 def even_odd(s):
@@ -284,72 +149,165 @@ def outward_in(s):
             break
     return r
 
-def extract_features(infl):
-    return {fv.split("=")[0] for s in infl for fv in s}
+@utils.delimited_sequence_transformer
+def reorder_manner(anipa_form):
+    skeleton = list(map(extract_manner, anipa_form))
+    return shuffle_by_skeleton(anipa_form, skeleton)
 
-def morpheme_orders(infl):
-    features = list(extract_features(infl) - {'Lemma'})
-    features = [(x,) for x in features]
-    n = len(features)
-    for order in itertools.permutations(range(n)):
-        yield [('Lemma',)] + list(reorder(features, order))
+@utils.delimited_sequence_transformer
+def reorder_cv(anipa_form):
+    skeleton = list(map(extract_cv, anipa_form))
+    return shuffle_by_skeleton(anipa_form, skeleton)
 
-def order_score(J, f, data, weights=None):
-    new_data = data.map(f)
-    return il.score(J, new_data, weights)
+@utils.delimited_sequence_transformer
+def reorder_total(form: Sequence, order: Sequence) -> Sequence:
+    return sorted(form, key=order.index)
 
-def total_fusion_score(J, infl, fused_order, weights=None):
-    return order_scores(J, lambda x: fuse_morphemes(x, fused_order), infl, weights=weights)
+SIMPLE_BASELINES = {
+    'manner': reorder_manner,
+    'cv': reorder_cv,
+    'even_odd': even_odd,
+    'outward_in': outward_in,
+}
 
-def total_order_score(J, infl, order, weights=None):
-    return order_scores(J, lambda x: reorder_total(x, order), infl, weights=weights)
+DEFAULT_BASELINES = ['nonsys', 'nonsysl', 'ds']
+ALLOWED_BASELINES = {'nonsys', 'nonsyl', 'ds', 'manner', 'cv', 'even_odd', 'outward_in', 'permutations'}
 
-def the_only(xs):
-    """ Return the single value of a one-element iterable """
-    x, = xs
-    return x
+def default_comparison(
+        filename: str,
+        baselines: Optional[Sequence[str]]=DEFAULT_BASELINES,
+        count_delimiter: str=DEFAULT_COUNT_DELIMITER,
+        form_delimiter: Optional[str]=None,
+        maxlen: Optional[int]=None,
+        header: bool=False,
+        num_samples: int=DEFAULT_NUM_SAMPLES) -> Iterator[pd.DataFrame]:
 
-def permutation_scores(J, forms, weights, perms=None):
-    # should take ~3hr to do a sweep over 9! permutations
-    # of (3*3)!=362,880 permutations, 1296 are 3-3-contiguous (~3.6%)
-    if perms is None:
-        l = the_only(forms.map(len).unique()) - 2 # 2 delimiters
-        perms = itertools.permutations(range(l))
-    for perm in perms:
-        yield order_score(J, lambda s: reorder_form(s, perm), forms, weights), perm
-
-def write_dicts(file, lines):
-    lines_iter = iter(lines)
-    first_line = next(lines_iter)
-    writer = csv.DictWriter(file, first_line.keys())
-    writer.writeheader()
-    writer.writerow(first_line)
-    for line in lines_iter:
-        writer.writerow(line)        
-
-def write_dfs(file, dfs):
-    def gen():
-        for df in dfs:
-            for _, row in df.iterrows():
-                yield dict(row)
-    write_dicts(file, gen())
-
-def main(arg):
-    if arg == 'unimorph':
-        write_dfs(sys.stdout, unimorph_comparison())
-        return 0
-    elif arg == 'wolex':
-        # Generat data for Figure 3A
-        write_dfs(sys.stdout, wolex_comparison())
-        return 0
-    elif arg == 'genome':
-        write_dfs(sys.stdout, genome_comparison(maxlen=10))
+    df = pd.read_csv(filename, header=0 if header else None, delimiter=count_delimiter)
+    if len(df.columns) == 1:
+        df.columns = ['form']
     else:
-        print("Give me argument in {wolex, unimorph, genome}", file=sys.stderr)
-        return 1
+        df.columns = ['form', 'count']
+    if form_delimiter is not None:
+        df['form'] = df['form'].map(lambda x: tuple(x.split(form_delimiter)))
+    return comparison(df, baselines=baselines, maxlen=maxlen, num_samples=num_samples)
+
+def comparison(
+        df: pd.DataFrame,
+        baselines: Optional[Sequence[str]]=DEFAULT_BASELINES,
+        maxlen: int=None,
+        seed: int=0,
+        label: Optional[str]=None,
+        num_samples: int=DEFAULT_NUM_SAMPLES,
+        monitor: bool=True) -> Iterator[pd.DataFrame]:
+    
+    if 'count' in df.columns:
+        weights = df['count']
+    else:
+        weights = None
+
+    if maxlen is None:
+        maxlen = df['form'].map(len).max()
+
+    kwds = {
+        'maxlen': maxlen,
+        'weights': weights,
+        'monitor': monitor,
+    }
+
+    ht_real = il.curves_from_sequences(df['form'], **kwds)
+    ht_real['real'] = 'real'
+    ht_real['label'] = label
+    ht_real['sample'] = 0
+    yield ht_real
+
+    if 'permutations' in baselines:
+        perms = itertools.permutations(range(maxlen))
+        for i, perm in enumerate(perms):
+            ht = il.curves_from_sequences(df['form'].map(lambda x: reorder_form(x, perm)), **kwds)
+            ht['real'] = 'perm_%d' % i
+            ht['label'] = label
+            ht['sample'] = 0
+            yield ht
+
+    for i in tqdm.tqdm(range(num_samples)):
+        if 'nonsys' in baselines:
+            print("Running nonsys baseline", file=sys.stderr)
+            if weights is None:
+                print("Warning: nonsys baseline is useless without counts.", file=sys.stderr)
+            ht = il.curves_from_sequences(utils.shuffled(df['form']), **kwds)
+            ht['real'] = 'nonsys'
+            ht['label'] = label
+            ht['sample'] = i
+            yield ht
+
+
+        if 'nonsysl' in baselines:
+            print("Running nonsysl baseline", file=sys.stderr)            
+            if weights is None:
+                print("Warning: nonsysl baseline is useless without counts.", file=sys.stderr)            
+            ht = il.curves_from_sequences(shuffle_preserving_length(df['form']), **kwds)
+            ht['real'] = 'nonsysl'
+            ht['label'] = label
+            ht['sample'] = i
+            yield ht
+
+        if 'ds' in baselines:
+            print("Running ds baseline", file=sys.stderr)            
+            ht = il.curves_from_sequences(df['form'].map(DeterministicScramble(seed+i).shuffle), **kwds)
+            ht['real'] = 'scramble'
+            ht['label'] = label
+            ht['sample'] = i
+            yield ht
+
+        for baseline in baselines:
+            if baseline in SIMPLE_BASELINES:
+                print("Running %s baseline" % baseline, file=sys.stderr)
+                ht = il.curves_from_sequences(df['form'].map(SIMPLE_BASELINES[baseline]), **kwds)
+                ht['real'] = baseline
+                ht['label'] = label
+                ht['sample'] = i
+                yield ht
+
+def main(args) -> int:
+    if args.filename == 'wolex':
+        # Generate data for Figure 3A
+        utils.write_dfs(sys.stdout, wolex_comparison(
+            maxlen=args.maxlen,
+            num_samples=args.num_samples,
+        ))
+        return 0
+    elif args.filename == 'genome':
+        utils.write_dfs(sys.stdout, genome_comparison(
+            maxlen=args.maxlen, num_samples=args.num_samples
+        ))
+        return 0
+    else:
+        baselines = args.baselines.split(" ")
+        assert all(baseline in ALLOWED_BASELINES for baseline in baselines)
+        comparison = default_comparison(
+            args.filename,
+            baselines=baselines,
+            count_delimiter=args.count_delimiter,
+            form_delimiter=args.form_delimiter,
+            maxlen=args.maxlen,
+            num_samples=args.num_samples,
+            header=args.header,
+        )
+        utils.write_dfs(sys.stdout, comparison)
+        return 0
         
 if __name__ == '__main__':
-    sys.exit(main(*sys.argv[1:]))
+    import argparse
+    argparser = argparse.ArgumentParser("Estimate entropy rate curves from a file and compare to baselines. If argument is 'wolex', runs on all Wolex corpora. If argument is 'genome', runs on genome data. Otherwise argument is treated as a filename, for a file assumed to consist of at least two columns. The first column is treated as forms. The second column is treated as counts.")
+    argparser.add_argument('filename', type=str)
+    argparser.add_argument('-m', '--maxlen', type=int, default=None)
+    argparser.add_argument('-f', '--form_delimiter', type=str, default=None)
+    argparser.add_argument('-c', '--count_delimiter', type=str, default=DEFAULT_COUNT_DELIMITER)
+    argparser.add_argument('-n', '--num_samples', type=int, default=DEFAULT_NUM_SAMPLES)
+    argparser.add_argument('-b', '--baselines', type=str, default=None)
+    argparser.add_argument('--header', action='store_true', default=False)    
+    args = argparser.parse_args()
+    sys.exit(main(args))
 
 
         
