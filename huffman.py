@@ -1,8 +1,9 @@
 import heapq
+from typing import *
 
 BOTTOM = float('-inf')
 
-def huffman(weights, n=2):
+def huffman(weights: Iterable, n: int=2) -> Sequence[Tuple[int]]:
     """ N-ary Huffman code
 
     Inputs: 
@@ -36,7 +37,6 @@ def huffman(weights, n=2):
         heapq.heappush(heap, (new_weight, new_supersymbol))
     return [tuple(reversed(code)) for code in codebook]
 
-
 def test_huffman():
     code = huffman([1, 1, 1, 1], 2)
     assert set(code) == {(0, 0), (0, 1), (1, 0), (1, 1)}
@@ -55,6 +55,3 @@ def test_huffman():
 if __name__ == '__main__':
     import nose
     nose.runmodule()
-
-    
-    

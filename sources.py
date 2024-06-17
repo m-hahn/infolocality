@@ -312,7 +312,7 @@ def hierarchical_source(two=.99, three=.2, six=.01, V=5, shuffle=True, **kwds):
     V2_to_V = np.eye(V)[list(range(V))*V]
     V2_to_V /= V2_to_V.sum()
 
-    permute = np.random.permutation if shuffle else lambda x: x
+    permute = np.random.permutation if shuffle else lambda x:x
     
     p1o = (1 - two) * product_distro(atom, atom).reshape(V,V) + two * permute(np.eye(V))/V
     p1 = (1 - three) * product_distro(p1o.flatten(), atom).reshape(V**2, V) + three * permute(V2_to_V)

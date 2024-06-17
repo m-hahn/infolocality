@@ -1666,7 +1666,7 @@ def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kw
                 'ms': ms,
                 'ee': ee,
                 'perm': perm,
-        }
+            }
     df = pd.DataFrame(gen()).sort_values('ee')
     df['i'] = range(len(df))
     return df

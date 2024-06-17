@@ -33,11 +33,9 @@ def counts_from_sequences(xs: Iterable[Sequence],
         if not isinstance(xs, Sequence):
             xs = list(xs)
         maxlen = max(map(len, xs))
-        
-    if monitor:
-        print("Using maxlen: %d" % maxlen, file=sys.stderr)
 
     if monitor:
+        print("Using maxlen: %d" % maxlen, file=sys.stderr)
         xs = tqdm.tqdm(xs)
 
     if weights is None:
@@ -167,11 +165,12 @@ def test_curve_properties():
     def mark_position(seq):
         return tuple(1000*x + y for x, y in enumerate(seq[:-1])) + ('#',)
 
+    # For fixed length strings, adding synchronization information does not affect asymptotic values
     fixed_length_data = [tuple(random.choice(range(5)) for _ in range(10)) + ('#',) for _ in range(1000)]
     for i in range(10):
         w = scipy.special.softmax(np.random.randn(len(fixed_length_data)))
-        one = curves_from_sequences(fixed_length_data, weights=w)
-        two = curves_from_sequences(map(mark_position, fixed_length_data), weights=w)
+        one = curves_from_sequences(fixed_length_data, maxlen=10, weights=w)
+        two = curves_from_sequences(map(mark_position, fixed_length_data), maxlen=10, weights=w)
         assert np.allclose(one['h_t'].min(), two['h_t'].min())
         assert np.allclose(one['H_M_lower_bound'].max(), two['H_M_lower_bound'].max())
 
