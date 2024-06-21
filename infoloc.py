@@ -1,5 +1,7 @@
 import sys
+import itertools
 import random
+import operator
 from collections import Counter
 from typing import *
 
@@ -224,9 +226,18 @@ def E3(p: np.ndarray) -> float:
 def main(args) -> int:
     with open(args.filename) as lines:
         lines = map(str.strip, lines)
+        
+        if args.count is None:
+            weights = None
+        else:
+            one, two = itertools.tee(line.split(args.count) for line in lines)
+            lines = map(operator.itemgetter(0), one)
+            weights = map(float, map(operator.itemgetter(-1), two))
+            
         if args.delimiter is not None:
             lines = (tuple(line.split(args.delimiter)) for line in lines)
-        df = curves_from_sequences(lines, maxlen=args.maxlen, monitor=True)
+
+        df = curves_from_sequences(lines, maxlen=args.maxlen, monitor=True, weights=weights)
     df.to_csv(sys.stdout)
     return 0
 
@@ -238,9 +249,10 @@ if __name__ == '__main__':
     else:
         import argparse
         argparser = argparse.ArgumentParser("Estimate entropy rate curves from a text file. Run with no arguments to run tests.")
-        argparser.add_argument('filename', type=str)
-        argparser.add_argument('-m', '--maxlen', type=int, default=None)
-        argparser.add_argument('-d', '--delimiter', type=str, default=None)
+        argparser.add_argument('filename', type=str, help="Filename of text to evaluate")
+        argparser.add_argument('-m', '--maxlen', type=int, default=None, help="Maximum length for n-gram entropy evaluation")
+        argparser.add_argument('-d', '--delimiter', type=str, default=None, help="Delimiter for parts of a line; by default, lines are split into characters")
+        argparser.add_argument('-c', '--count', type=str, default=None, help="Delimiter separating a line from a count; by default, there is no count column")
         args = argparser.parse_args()
         sys.exit(main(args))
     
