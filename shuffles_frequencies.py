@@ -112,6 +112,20 @@ def genome_comparison(**kwds):
     df = read_faa(PROTEINS_PATH)
     return comparison(df, baselines=['ds'], **kwds)
 
+
+import re
+
+def contains_non_alphabetic(x):
+    # Regular expression pattern to match any character not in a-z or A-Z
+    pattern = r'[^a-zA-Z]'
+    
+    # Search for the pattern in the string
+    if re.search(pattern, x):
+        return True
+    else:
+        return False
+
+
 def wolex_comparison(**kwds):
     print(kwds, file=sys.stderr)
     wolex_filenames = [
@@ -126,21 +140,26 @@ def wolex_comparison(**kwds):
         language = filename.split(".")[0]
         if language == "SouthernBritishEnglish":
             language = "English"
-        with open("/Users/michaelhahn/Downloads/wolex/original/VOCABS_FOR_WOLEX/"+language.lower()+"-vocab_ALL.txt", "r") as inFile:
+        with open("/Users/michaelhahn/Downloads/wolex/original/VOCAB_FOR_WOLEX_FULL2/"+language.lower()+"-vocab_ALL.txt", "r") as inFile:
            wordCounts = dict([(x[0], int(x[1])) for x in [x.split("\t") for x in inFile.read().strip().split("\n")]])
         wordCounts_normalized = collections.defaultdict(int)
         weights = []
         for x, c in wordCounts.items():
             x_ = ''.join(c for c in x.lower() if c not in string.punctuation)
             wordCounts_normalized[x_] += c
+        j = 0
         for x in wolex['Orthography']:
-            print("orthographic form", x, file=sys.stderr)
+            j += 1
+#            print("orthographic form", x, file=sys.stderr)
             if x != x:
                 print("WARNING! NA FORM", file=sys.stderr)
                 weights.append(0)
             else:
                 weights.append(wordCounts_normalized[x.lower()]+1)
-            print(x, weights[-1], file=sys.stderr)
+      #          if contains_non_alphabetic(x):
+       #           print(f"WARNING###{x}###", file=sys.stderr)
+            print(j, x, weights[-1], file=sys.stderr)
+                
         wolex['count'] = weights
 
 
@@ -309,7 +328,7 @@ def main(args) -> int:
         utils.write_dfs(sys.stdout, wolex_comparison(
             maxlen=args.maxlen,
             num_samples=args.num_samples,
-            languages=["English", "Dutch", "German", "French"],
+            languages=["French"], #"SouthernBritishEnglish"], #, "Dutch", "German", "French"],
         ))
         return 0
     elif args.filename == 'genome':
