@@ -126,6 +126,19 @@ def contains_non_alphabetic(x):
         return False
 
 
+def convert_german_chars(s):
+    replacements = {
+        'ä': 'ae',
+        'ö': 'oe',
+        'ü': 'ue',
+        'ß': 'ss'
+    }
+    for char, replacement in replacements.items():
+        s = s.replace(char, replacement)
+    return s
+
+
+
 def wolex_comparison(**kwds):
     print(kwds, file=sys.stderr)
     wolex_filenames = [
@@ -140,12 +153,14 @@ def wolex_comparison(**kwds):
         language = filename.split(".")[0]
         if language == "SouthernBritishEnglish":
             language = "English"
-        with open("/Users/michaelhahn/Downloads/wolex/original/VOCAB_FOR_WOLEX_FULL2/"+language.lower()+"-vocab_ALL.txt", "r") as inFile:
+        with open("/Users/michaelhahn/Downloads/wolex/original/VOCAB_FOR_WOLEX_FULL3/"+language.lower()+"-vocab_ALL.txt", "r") as inFile:
            wordCounts = dict([(x[0], int(x[1])) for x in [x.split("\t") for x in inFile.read().strip().split("\n")]])
         wordCounts_normalized = collections.defaultdict(int)
         weights = []
         for x, c in wordCounts.items():
             x_ = ''.join(c for c in x.lower() if c not in string.punctuation)
+            if language == "German":
+               x_ = convert_german_chars(x_)
             wordCounts_normalized[x_] += c
         j = 0
         for x in wolex['Orthography']:
@@ -328,7 +343,7 @@ def main(args) -> int:
         utils.write_dfs(sys.stdout, wolex_comparison(
             maxlen=args.maxlen,
             num_samples=args.num_samples,
-            languages=["French"], #"SouthernBritishEnglish"], #, "Dutch", "German", "French"],
+            languages=["SouthernBritishEnglish", "Dutch", "German", "French"],
         ))
         return 0
     elif args.filename == 'genome':
