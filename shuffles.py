@@ -17,7 +17,7 @@ DEFAULT_DELIMITER = utils.RightDelimiter()
 DEFAULT_COUNT_DELIMITER = "\t"
 
 PROTEINS_PATH = "/Users/canjo/data/genome/GRCh37_latest_protein.faa"
-WOLEX_PATH = "/Users/canjo/data/wolex/"
+WOLEX_PATH = "/Users/michaelhahn/Downloads/wolex/original/"
 
 DEFAULT_NUM_SAMPLES = 10
 
@@ -99,7 +99,8 @@ def read_faa(filename: str, with_delimiter: utils.Delimiter=DEFAULT_DELIMITER) -
     return pd.DataFrame(gen())
 
 def read_wolex(filename: str, with_delimiter: utils.Delimiter=DEFAULT_DELIMITER) -> pd.DataFrame:
-    df = pd.read_csv(filename)
+    df = pd.read_csv(filename, encoding='utf-8')
+    print("Finished reading from the file", file=sys.stderr)
     df['form'] = df['word'].map(lambda x: tuple(anipa_to_ipa.segment(x))).map(lambda xs: utils.strip(xs, '#')).map(with_delimiter.delimit_sequence)
     df['ipa_form'] = with_delimiter.delimit_array(df['word'].map(lambda s: s.strip("#")).map(anipa_to_ipa.convert_word))
     return df
@@ -111,7 +112,7 @@ def genome_comparison(**kwds):
 def wolex_comparison(**kwds):
     wolex_filenames = [
         filename for filename in os.listdir(WOLEX_PATH)
-        if filename.endswith(".Parsed.CSV-utf8")
+        if filename.endswith(".Parsed.CSV") and filename.split(".")[0] in kwds["languages"]
     ]
     for filename in wolex_filenames:
         wolex = read_wolex(os.path.join(WOLEX_PATH, filename))
@@ -198,7 +199,7 @@ def comparison(
         seed: int=0,
         label: Optional[str]=None,
         num_samples: int=DEFAULT_NUM_SAMPLES,
-        monitor: bool=True) -> Iterator[pd.DataFrame]:
+        monitor: bool=True, **kwds) -> Iterator[pd.DataFrame]:
     
     if 'count' in df.columns:
         weights = df['count']
@@ -234,6 +235,7 @@ def comparison(
             print("Running nonsys baseline", file=sys.stderr)
             if weights is None:
                 print("Warning: nonsys baseline is useless without counts.", file=sys.stderr)
+                assert False
             ht = il.curves_from_sequences(utils.shuffled(df['form']), **kwds)
             ht['real'] = 'nonsys'
             ht['label'] = label
@@ -274,6 +276,7 @@ def main(args) -> int:
         utils.write_dfs(sys.stdout, wolex_comparison(
             maxlen=args.maxlen,
             num_samples=args.num_samples,
+            languages=["English", "Dutch", "German", "French"],
         ))
         return 0
     elif args.filename == 'genome':

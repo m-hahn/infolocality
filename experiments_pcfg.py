@@ -1631,12 +1631,12 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
 
     return pd.concat(list(gen_df(inner_letter_level())))
 
-def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
+def pcfg_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
     # Number of symbols per string
     K = 6
     
     # Hierarchically structured source: ((AB)C)((DE)F)
-    source = s.hierarchical_source(V=V, **kwds)
+    source = s.pcfg_source(V=V, **kwds)
     
     # Code is random strongly systematic.
     code = c.random_code(V, V, 1, unique=unique)
@@ -1680,7 +1680,7 @@ SIX = random.random()*THREE/2
 
 #TWO, THREE, SIX = sorted([TWO, THREE, SIX], reverse=True)
 
-df = hierarchical_orders(two=TWO, three=THREE, six=SIX)
-with open(f"results/hierarchical_orders_{TWO}_{THREE}_{SIX}.txt", "w") as outFile:
+df = pcfg_orders(two=TWO, three=THREE, six=SIX)
+with open(f"results/pcfg_orders_{TWO}_{THREE}_{SIX}.txt", "w") as outFile:
    df.to_csv(outFile)
 

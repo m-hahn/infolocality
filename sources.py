@@ -363,23 +363,19 @@ def pcfg_source(**kwds):
                 print(start, second_start, end)
                 entries_first_span = CKY_chart[:,start,second_start-1].view(5**6, 1, 10, 1)
                 entries_second_span = CKY_chart[:,second_start,end].view(5**6, 1, 1, 10)
-                inner_probabilities = productions.unsqueeze(0) + entries_first_span + entries_second_span
+                inner_probabilities = log_productions.unsqueeze(0) + entries_first_span + entries_second_span
                 inner_probabilities = torch.logsumexp(inner_probabilities.view(5**6, 5, 100), dim=2) # 5**6 x 5
 #                assert CKY_chart[:, start, end].max() < -1e5, CKY_chart[:, start, end].max()
                 CKY_chart[:, start, end, :5] = logAddExp(inner_probabilities, CKY_chart[:, start, end, :5])
                 
                 
 
-
-    print(CKY_chart[:, 0, -1, 0])
-    print(torch.logsumexp(CKY_chart[:, 0, -1, 0], dim=0))
-    quit()
-
+    log_probabilies_per_string = CKY_chart[:, 0, -1, 0]
+    assert torch.logsumexp(CKY_chart[:, 0, -1, 0], dim=0) <= 0
+    normalized_probabilities_per_string = torch.softmax(log_probabilies_per_string, dim=0)
 
 
-
-
-    return None
+    return normalized_probabilities_per_string.numpy().reshape(5, 5, 5, 5, 5, 5)
 
 # PCFG source
 # 
