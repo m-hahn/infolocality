@@ -324,6 +324,66 @@ def hierarchical_source(two=.99, three=.2, six=.01, V=5, shuffle=True, **kwds):
 
     return p.reshape(V,V,V,V,V,V)
 
+import torch
+
+def logAddExp(x, y):
+    m = torch.max(x,y)
+    return ((x-m).exp() + (y-m).exp()).log() + m
+
+def pcfg_source(**kwds):
+    # define a small PCFG
+    nonterminals = list(range(5))
+    terminals = list(range(5,10))
+
+    productions = torch.rand(5, 10, 10)
+    productions /= productions.sum(dim=1, keepdim=True).sum(dim=2, keepdim=True)
+#    print(productions.sum(dim=1).sum(dim=1))
+ #   quit()
+    log_productions = productions.log()
+
+    # so we get the different ordered trees; this defines the set of objects.
+    # - the actual order
+    # - deterministic permutations of the order
+    # - deterministic permutations of the probability distribution over words (but there it can only be a fraction of the permutations)
+    
+    # we can run CKY in parallel on all strings
+
+    string_number = 5**6
+    CKY_chart = torch.zeros(5**6, 6, 6, 10)-1e10
+    from itertools import product
+    elements = [5, 6, 7, 8, 9]
+    all_lists = list(product(elements, repeat=6))
+    for i in range(5^6):
+        for j in range(6):
+            CKY_chart[i,j,j,all_lists[i][j]] = 0
+    for span_diff in range(1,6):
+        for start in range(0,6-span_diff):
+            end = start + span_diff
+            for second_start in range(start+1, end+1):
+                print(start, second_start, end)
+                entries_first_span = CKY_chart[:,start,second_start-1].view(5**6, 1, 10, 1)
+                entries_second_span = CKY_chart[:,second_start,end].view(5**6, 1, 1, 10)
+                inner_probabilities = productions.unsqueeze(0) + entries_first_span + entries_second_span
+                inner_probabilities = torch.logsumexp(inner_probabilities.view(5**6, 5, 100), dim=2) # 5**6 x 5
+#                assert CKY_chart[:, start, end].max() < -1e5, CKY_chart[:, start, end].max()
+                CKY_chart[:, start, end, :5] = logAddExp(inner_probabilities, CKY_chart[:, start, end, :5])
+                
+                
+
+
+    print(CKY_chart[:, 0, -1, 0])
+    print(torch.logsumexp(CKY_chart[:, 0, -1, 0], dim=0))
+    quit()
+
+
+
+
+
+    return None
+
+# PCFG source
+# 
+
 if __name__ == '__main__':
     import nose
     nose.runmodule()
