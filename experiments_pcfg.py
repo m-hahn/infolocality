@@ -1634,7 +1634,7 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
 def pcfg_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
     # Number of symbols per string
     K = 6
-    
+     
     # Hierarchically structured source: ((AB)C)((DE)F)
     source = s.pcfg_source(V=V, **kwds)
     
@@ -1674,13 +1674,10 @@ def pcfg_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
 
 
 import random
-TWO = random.random()
-THREE = random.random()*TWO/2
-SIX = random.random()*THREE/2
+seed = random.randint(100,10000)
+inverse_temperature = 3
 
-#TWO, THREE, SIX = sorted([TWO, THREE, SIX], reverse=True)
-
-df = pcfg_orders(two=TWO, three=THREE, six=SIX)
-with open(f"results/pcfg_orders_{TWO}_{THREE}_{SIX}.txt", "w") as outFile:
+df = pcfg_orders(seed=seed, inverse_temperature=inverse_temperature)
+with open(f"results/pcfg_orders_{seed}_{inverse_temperature}.txt", "w") as outFile:
    df.to_csv(outFile)
 
