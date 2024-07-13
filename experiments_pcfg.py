@@ -1674,8 +1674,13 @@ def pcfg_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
 
 
 import random
+import glob
 seed = random.randint(100,10000)
-inverse_temperature = 3
+candidate_inv_temperatures = [x for x in [1,2,3,4,10,20] if len(glob.glob(f"results/pcfg_orders_*_{x}.txt")) < 10]
+print(candidate_inv_temperatures)
+if len(candidate_inv_temperatures) == 0:
+   quit()
+inverse_temperature = random.choice(candidate_inv_temperatures)
 
 df = pcfg_orders(seed=seed, inverse_temperature=inverse_temperature)
 with open(f"results/pcfg_orders_{seed}_{inverse_temperature}.txt", "w") as outFile:

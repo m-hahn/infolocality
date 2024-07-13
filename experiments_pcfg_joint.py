@@ -1631,12 +1631,12 @@ def letter_level(counts, num_baseline_samples=1000, len_granularity=1, with_spac
 
     return pd.concat(list(gen_df(inner_letter_level())))
 
-def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
+def pcfg_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kwds):
     # Number of symbols per string
     K = 6
-    
+     
     # Hierarchically structured source: ((AB)C)((DE)F)
-    source = s.hierarchical_source(V=V, **kwds)
+    source = s.pcfg_source(V=V, **kwds)
     
     # Code is random strongly systematic.
     code = c.random_code(V, V, 1, unique=unique)
@@ -1648,13 +1648,13 @@ def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kw
     num_perms = math.factorial(K) // 2
     perms = itertools.islice(itertools.permutations(range(K)), num_perms)
 
-    #well_nested_perms = {
-    #    a + b for a, b in
-    #    itertools.product([(0,1,2), (1,0,2), (2,0,1), (2,1,0)], [(3,4,5), (4,3,5), (5,3,4), (5,4,3)])
-    #}
+    well_nested_perms = {
+        a + b for a, b in
+        itertools.product([(0,1,2), (1,0,2), (2,0,1), (2,1,0)], [(3,4,5), (4,3,5), (5,3,4), (5,4,3)])
+    }
     
     #well_nested_perms |= {tuple(reversed(perm)) for perm in well_nested_perms}
-    
+    randomState = random.Random(kwds['seed'])
     def gen():
         for perm in tqdm.tqdm(perms, total=num_perms):
             reordered = np.array(signal['form'].map(lambda s: sh.reorder_form(s, perm)))
@@ -1662,10 +1662,25 @@ def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kw
             ms = il.ms_auc(curves)
             ee = il.ee(curves)
             yield {
-       #         'is_well_nested': perm in well_nested_perms,
+                'is_well_nested': perm in well_nested_perms,
                 'ms': ms,
                 'ee': ee,
                 'perm': perm,
+            }
+        print(456789)
+        for u in tqdm.tqdm(range(num_perms), total=num_perms):
+            perm = list(range(V**K))
+            if u > 0:
+               randomState.shuffle(perm)
+#            signal_ = {"form" : signal["form"], "probability" : signal["probability"][perm]}
+            curves = il.curves_from_sequences(signal["form"], weights=signal['probability'][perm]) 
+            ms = il.ms_auc(curves)
+            ee = il.ee(curves)
+            yield {
+                'is_well_nested': (u == 0),
+                'ms': ms,
+                'ee': ee,
+                'perm': f"general_{u}",
             }
     df = pd.DataFrame(gen()).sort_values('ee')
     df['i'] = range(len(df))
@@ -1674,13 +1689,15 @@ def hierarchical_orders(V=5, with_delimiter=DEFAULT_DELIMITER, unique=True, **kw
 
 
 import random
-TWO = random.random()
-THREE = random.random()*TWO/2
-SIX = random.random()*THREE/2
+import glob
+seed = random.randint(100,10000)
+candidate_inv_temperatures = [x for x in [1,2,3,4,10,20] if len(glob.glob(f"results/pcfg_orders_joint_*_{x}.txt")) < 10]
+print(candidate_inv_temperatures)
+if len(candidate_inv_temperatures) == 0:
+   quit()
+inverse_temperature = random.choice(candidate_inv_temperatures)
 
-#TWO, THREE, SIX = sorted([TWO, THREE, SIX], reverse=True)
-
-df = hierarchical_orders(two=TWO, three=THREE, six=SIX)
-with open(f"results/hierarchical_orders_{TWO}_{THREE}_{SIX}.txt", "w") as outFile:
+df = pcfg_orders(seed=seed, inverse_temperature=inverse_temperature)
+with open(f"results/pcfg_orders_joint_{seed}_{inverse_temperature}.txt", "w") as outFile:
    df.to_csv(outFile)
 
