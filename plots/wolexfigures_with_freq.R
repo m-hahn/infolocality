@@ -32,12 +32,10 @@ d = read_csv("results/wolex_results_with_frequencies.csv") %>%
   mutate(lang=if_else(lang=="SouthernBritishEnglish", "English", lang))
 
 INTERESTING_LANGS = c(
-  "English", # English
-  "Turkish", # vowel harmony
-  "Georgian", # consonant heavy
-  "Zulu", # clicks
-  "Hebrew", # nonconcatenative morphology 
-  "Khmer" # tonal
+  "Dutch", 
+  "English",
+  "French", 
+  "German"
 )
 
 df = d %>% filter(lang %in% INTERESTING_LANGS)
