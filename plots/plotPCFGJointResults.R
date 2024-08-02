@@ -148,7 +148,9 @@ plot <- ggplot() +
                alpha = 0.5) +
   facet_grid(SeedByTemperature ~ as.numeric(InverseTemperature), scales = "free_x") +
   labs(x = "ee", y = "Density", color = "Matches Structure", fill = "Matches Structure") +
-  theme_minimal()
+  theme_minimal() +   theme(
+        axis.text.y=element_blank(),
+        axis.ticks.x=element_blank())
 
-print(plot)
+ggsave("figures/plotPCFGJointResults.pdf", plot)
 
