@@ -138,19 +138,19 @@ plot <- ggplot() +
   geom_bar(data = local_systematic_data %>% 
              group_by(InverseTemperature, SeedByTemperature, ee, matches_structure, bar_width) %>%
              summarise(count = n()), 
-           aes(x = ee, y = count, fill = matches_structure, color = matches_structure, width = bar_width), 
+           aes(x = ee/log(2), y = count, fill = matches_structure, color = matches_structure, width = bar_width), 
            stat = "identity", position = "identity", alpha = 0.5) +
   geom_density(data = other_data %>%
                  group_by(InverseTemperature, SeedByTemperature) %>%
                  arrange(InverseTemperature, SeedByTemperature, ee) %>%
                  mutate(index = row_number()),
-               aes(x = ee, y = ..scaled.., color = matches_structure, fill = matches_structure, group = paste(SeedByTemperature, matches_structure)),
+               aes(x = ee/log(2), y = ..scaled.., color = matches_structure, fill = matches_structure, group = paste(SeedByTemperature, matches_structure)),
                alpha = 0.5) +
   facet_grid(SeedByTemperature ~ as.numeric(InverseTemperature), scales = "free_x") +
-  labs(x = "ee", y = "Density", color = "Matches Structure", fill = "Matches Structure") +
+  labs(x = "Excess Entropy (bits)", y = "Density", color = "Matches Structure", fill = "Matches Structure") +
   theme_minimal() +   theme(
         axis.text.y=element_blank(),
         axis.ticks.x=element_blank())
 
-ggsave("figures/plotPCFGJointResults.pdf", plot)
+ggsave("figures/plotPCFGJointResults.pdf", plot, width=10, height=6)
 

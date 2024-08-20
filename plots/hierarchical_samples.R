@@ -109,18 +109,18 @@ all_data <- map_dfr(file_names, read_file_with_params)
 all_data = all_data %>% filter((alpha > beta*2) & (beta > gamma*2))
 
 # Create the plot with removed facet labels
-plot <- ggplot(all_data, aes(x=x, y=ee, color=is_well_nested, group=paste(alpha, beta, gamma))) +
+plot <- ggplot(all_data, aes(x=x, y=ee/log(2), color=is_well_nested, group=paste(alpha, beta, gamma))) +
   geom_line(color="gray") +
   geom_point() +
   theme_minimal() +
-  labs(x = "Index", y = "EE", color = "Is Well Nested") +
+  labs(x = "Index", y = "Excess Entropy (bits)", color = "Is Well Nested") +
   theme(legend.position = "bottom",
         strip.background = element_blank(),
         strip.text.x = element_blank())
 
 # Display the plot
 plot
-ggsave("figures/hierarchical_samples.pdf", plot)
+ggsave("figures/hierarchical_samples.pdf", plot, height=5, width=7)
 
 
 # Optionally, save the plot
