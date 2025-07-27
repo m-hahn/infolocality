@@ -1,5 +1,5 @@
+
 rm(list=ls())
-setwd("~/projects/infolocality/")
 library(tidyverse)
 library(latex2exp)
 library(ggplot2)
@@ -22,7 +22,7 @@ BADS = c(
 )
   
 
-d = read_csv("results/wolex_results_with_frequencies.csv") %>% 
+d = read_csv("../results/wolex_results_with_frequencies.csv") %>% 
   mutate(lang=str_replace(label, ".Parsed.*", ""),
          real=factor(real, levels=c("real", "manner", "cv", "even_odd", "shuffled"))) %>%
   filter(!(lang %in% BADS)) %>%
@@ -67,7 +67,7 @@ plots = df %>%
 
 wrap_plots(plots)
 
-ggsave("plots/wolex_figures_with_frequencies.pdf", height=4, width=9)
+ggsave("../plots/wolex_figures_with_frequencies.pdf", height=4, width=9)
 
 d %>% 
   inner_join(stats) %>%
@@ -82,7 +82,7 @@ d %>%
       theme(legend.position="bottom") +
       xlim(0, 7)
       
-ggsave("plots/all_wolex_figures_with_frequencies.pdf", height=9, width=11)
+ggsave("../plots/all_wolex_figures_with_frequencies.pdf", height=9, width=11)
 
 stats %>%
   filter(real %in% c("real", "shuffled", "manner")) %>%
