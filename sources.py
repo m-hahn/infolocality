@@ -382,6 +382,63 @@ def pcfg_source(seed, inverse_temperature, **kwds):
 
     return normalized_probabilities_per_string.numpy().reshape(5, 5, 5, 5, 5, 5)
 
+
+
+def hmm_source(seed, inverse_temperature, **kwds):
+    # define a small PCFG
+    nonterminals = list(range(5))
+    terminals = list(range(5,10))
+
+
+    torch.manual_seed(seed)
+    log_productions = inverse_temperature * torch.rand(5, 10, 10).log()
+    log_productions[:,:5] = -1e10
+    log_productions = (log_productions.view(5, 100))
+    log_productions = log_productions - torch.logsumexp(log_productions, dim=1, keepdim=True)
+    log_productions = log_productions.view(5, 10, 10)
+#    log_productions /= log_productions.sum(dim=1, keepdim=True).sum(dim=2, keepdim=True)
+#    print(log_productions.exp().sum(dim=1).sum(dim=1))
+#    quit()
+
+    # so we get the different ordered trees; this defines the set of objects.
+    # - the actual order
+    # - deterministic permutations of the order
+    # - deterministic permutations of the probability distribution over words (but there it can only be a fraction of the permutations)
+    
+    # we can run CKY in parallel on all strings
+
+    string_number = 5**6
+    CKY_chart = torch.zeros(5**6, 6, 6, 10)-1e10
+    from itertools import product
+    elements = [5, 6, 7, 8, 9]
+    all_lists = list(product(elements, repeat=6))
+    print("Filling preterminals")
+    for i in range(5**6):
+        for j in range(6):
+            CKY_chart[i,j,j,all_lists[i][j]] = 0
+    print("Now running CKY")
+    for span_diff in range(1,6):
+        for start in range(0,6-span_diff):
+            end = start + span_diff
+            for second_start in range(start+1, end+1):
+                print(start, second_start, end)
+                entries_first_span = CKY_chart[:,start,second_start-1].view(5**6, 1, 10, 1)
+                entries_second_span = CKY_chart[:,second_start,end].view(5**6, 1, 1, 10)
+                inner_probabilities = log_productions.unsqueeze(0) + entries_first_span + entries_second_span
+                inner_probabilities = torch.logsumexp(inner_probabilities.view(5**6, 5, 100), dim=2) # 5**6 x 5
+#                assert CKY_chart[:, start, end].max() < -1e5, CKY_chart[:, start, end].max()
+                CKY_chart[:, start, end, :5] = logAddExp(inner_probabilities, CKY_chart[:, start, end, :5])
+                
+                
+    log_probabilities_per_string = CKY_chart[:, 0, -1, 0]
+#    print(log_probabilities_per_string.numpy().tolist())
+    assert torch.logsumexp(CKY_chart[:, 0, -1, 0], dim=0) <= 0
+    normalized_probabilities_per_string = torch.softmax(log_probabilities_per_string, dim=0)
+
+    return normalized_probabilities_per_string.numpy().reshape(5, 5, 5, 5, 5, 5)
+
+
+
 # PCFG source
 # 
 
