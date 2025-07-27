@@ -1,4 +1,5 @@
 library(dplyr)
+library(ggplot2)
 
 combine_csv_files <- function(directory) {
   files <- list.files(directory, pattern = "pcfg_orders_joint_.*_.*\\.txt", full.names = TRUE)
@@ -30,47 +31,10 @@ combined_data <- combine_csv_files(directory)
 
 combined_data = combined_data %>% mutate(InverseTemperature = as.numeric(InverseTemperature))
 
-# Display the combined data frame
-print(combined_data)
-
 combined_data =  combined_data %>% filter(perm != "general_0")
 
 combined_data$matches_structure = ifelse((combined_data$perm == "(0, 1, 2, 3, 4, 5)"), "local&systematic", ifelse(grepl("general_", combined_data$perm), "unsystematic", "systematic"))
 
-
-library(ggplot2)
-
-#plot = ggplot(combined_data %>% group_by(InverseTemperature, Seed) %>% arrange(InverseTemperature, Seed, ee) %>% mutate(index=row_number()) %>% filter(index < 10), aes(x=index, y=ee, color=matches_structure, group=Seed)) + geom_line() + geom_point() + geom_line(color="gray", aes(group==Seed)) + facet_wrap(~as.numeric(InverseTemperature), scales="free_y")
-
-plot = ggplot(combined_data %>% group_by(InverseTemperature, Seed) %>% arrange(InverseTemperature, Seed, ee) %>% mutate(index=row_number()), aes(x=index, y=ee, color=matches_structure, group=Seed)) + geom_line(color="gray", aes(group=Seed)) + geom_point() + facet_wrap(~as.numeric(InverseTemperature), scales="free_y")
-
-plot = ggplot(combined_data %>% 
-                group_by(InverseTemperature, Seed) %>% 
-                arrange(InverseTemperature, Seed, ee) %>% 
-                mutate(index=row_number()), 
-              aes(x=ee, color=matches_structure, fill=matches_structure)) + 
-        geom_density(alpha=0.5) + 
-        facet_wrap(~as.numeric(InverseTemperature), scales="free") + 
-        labs(x="ee", y="Density", color="Matches Structure", fill="Matches Structure") + 
-        theme_minimal()
-
-
-plot = ggplot(combined_data %>% 
-                group_by(InverseTemperature, Seed) %>% 
-                arrange(InverseTemperature, Seed, ee) %>% 
-                mutate(index=row_number()), 
-              aes(x=ee, color=matches_structure, fill=matches_structure)) + 
-        geom_density(alpha=0.5) + 
-        facet_wrap(~as.numeric(InverseTemperature), scales="free_y") + 
-        labs(x="ee", y="Density", color="Matches Structure", fill="Matches Structure") + 
-        theme_minimal()
-
-
-
-
-
-library(ggplot2)
-library(dplyr)
 
 # Assuming combined_data is already defined
 
@@ -85,32 +49,6 @@ local_systematic_data <- combined_data %>%
 other_data <- combined_data %>%
   filter(matches_structure != "local&systematic")
 
-
-
-
-# Plot
-plot = ggplot() +
-  geom_bar(data = local_systematic_data %>% 
-             group_by(InverseTemperature, SeedByTemperature, ee, matches_structure) %>%
-             summarise(count = n()), 
-           aes(x = ee, y = count, fill = matches_structure, color = matches_structure), 
-           stat = "identity", position = "identity", alpha = 0.5) +
-  geom_density(data = other_data %>%
-                 group_by(InverseTemperature, SeedByTemperature) %>%
-                 arrange(InverseTemperature, SeedByTemperature, ee) %>%
-                 mutate(index = row_number()),
-               aes(x = ee, y=..scaled.., color = matches_structure, fill = matches_structure, group=paste(SeedByTemperature, matches_structure)),   
-               alpha = 0.5) +
-  facet_grid(SeedByTemperature~as.numeric(InverseTemperature), scales = "free") +
-  labs(x = "ee", y = "Density", color = "Matches Structure", fill = "Matches Structure") +
-  theme_minimal()
-
-
-
-
-
-library(ggplot2)
-library(dplyr)
 
 # Define a function to calculate dynamic bar width based on the range of ee values within each facet
 calculate_bar_width <- function(data, prop = 0.02) {
